@@ -71,7 +71,7 @@ Open [http://localhost:3000](http://localhost:3000) to see your dashboard!
 
 ### Option 1: One-Click Deploy
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/your-username/lytbub-hq)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/jmorrow08/lytbub-hq)
 
 ### Option 2: Manual Deploy
 
