@@ -1,5 +1,5 @@
 'use client';
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from 'react';
 import { StatsCard } from '@/components/StatsCard';
@@ -58,7 +58,8 @@ export default function Dashboard() {
     );
   }
 
-  const completionRate = stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0;
+  const completionRate =
+    stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0;
 
   return (
     <div className="space-y-8">
@@ -92,7 +93,9 @@ export default function Dashboard() {
           title="Today's Health"
           value={stats.todayHealth ? 'Logged' : 'Not logged'}
           icon={Heart}
-          description={stats.todayHealth ? `Energy: ${stats.todayHealth.energy}/10` : 'Log your health'}
+          description={
+            stats.todayHealth ? `Energy: ${stats.todayHealth.energy}/10` : 'Log your health'
+          }
         />
       </div>
 
@@ -110,8 +113,16 @@ export default function Dashboard() {
               <div className="space-y-2">
                 {recentTasks.slice(0, 3).map((task) => (
                   <div key={task.id} className="flex items-center space-x-2">
-                    <div className={`w-2 h-2 rounded-full ${task.completed ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                    <span className={`text-sm ${task.completed ? 'line-through text-muted-foreground' : ''}`}>
+                    <div
+                      className={`w-2 h-2 rounded-full ${
+                        task.completed ? 'bg-green-500' : 'bg-yellow-500'
+                      }`}
+                    />
+                    <span
+                      className={`text-sm ${
+                        task.completed ? 'line-through text-muted-foreground' : ''
+                      }`}
+                    >
                       {task.title}
                     </span>
                   </div>
