@@ -1,12 +1,13 @@
 'use client';
 export const dynamic = "force-dynamic";
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { StatsCard } from '@/components/StatsCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDashboardStats, getTasks, getRevenue, getContent } from '@/lib/api';
 import type { DashboardStats, Task, Revenue, Content } from '@/types';
-import { CheckSquare, DollarSign, Video, Heart, TrendingUp, TrendingDown } from 'lucide-react';
+import { CheckSquare, DollarSign, Video, Heart, FolderKanban, ArrowUpRight } from 'lucide-react';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -98,6 +99,68 @@ export default function Dashboard() {
           }
         />
       </div>
+
+      {/* Projects Overview */}
+      {stats.projectSummaries && stats.projectSummaries.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Projects</h2>
+              <p className="text-sm text-muted-foreground">
+                Quick look at your most active initiatives
+              </p>
+            </div>
+            <Link href="/projects" className="text-sm text-primary hover:underline">
+              Manage projects →
+            </Link>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {stats.projectSummaries.map((summary) => (
+              <Card key={summary.project.id} className="relative overflow-hidden">
+                <div
+                  className="absolute inset-x-0 top-0 h-1"
+                  style={{ backgroundColor: summary.project.color || '#6366f1' }}
+                />
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center justify-between text-base">
+                    <span className="flex items-center space-x-2">
+                      <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                      <span>{summary.project.name}</span>
+                    </span>
+                    <span className="text-xs uppercase text-muted-foreground">
+                      {summary.project.status}
+                    </span>
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground capitalize">
+                    {summary.project.type.replace('_', ' ')}
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Open Tasks</span>
+                    <span className="font-semibold">{summary.openTasks}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Content</span>
+                    <span className="font-semibold">{summary.contentCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Views</span>
+                    <span className="font-semibold">{summary.totalViews.toLocaleString()}</span>
+                  </div>
+                  <Link
+                    href={`/projects/${summary.project.id}`}
+                    className="flex items-center space-x-1 text-sm text-primary hover:underline"
+                  >
+                    <span>Open board</span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Recent Activity */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

@@ -136,6 +136,11 @@ export default function HealthPage() {
   const avgEnergy = health.length > 0
     ? health.reduce((sum, h) => sum + (h.energy || 0), 0) / health.length
     : 0;
+  const apostrophe = String.fromCharCode(39);
+  const todayPossessive = `Today${apostrophe}s`;
+  const formHeading = isEditing
+    ? `Edit ${editingEntry ? formatEntryDate(editingEntry.date) : todayPossessive} Health`
+    : `Log ${todayPossessive} Health`;
 
   if (loading) {
     return (
@@ -166,7 +171,7 @@ export default function HealthPage() {
             className="flex items-center space-x-2"
           >
             <Heart className="h-4 w-4" />
-            <span>Log Today's Health</span>
+            <span>Log {todayPossessive} Health</span>
           </Button>
         )}
         {todayHealth && (
@@ -189,7 +194,7 @@ export default function HealthPage() {
           <CardHeader>
             <CardTitle className="flex items-center space-x-2 text-green-700 dark:text-green-400">
               <Heart className="h-5 w-5" />
-              <span>Today's Health Logged</span>
+              <span>{todayPossessive} Health Logged</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -281,11 +286,7 @@ export default function HealthPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>
-              {isEditing
-                ? `Edit ${editingEntry ? formatEntryDate(editingEntry.date) : "Today's"} Health`
-                : "Log Today's Health"}
-            </CardTitle>
+            <CardTitle>{formHeading}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">

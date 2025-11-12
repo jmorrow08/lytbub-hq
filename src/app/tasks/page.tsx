@@ -1,12 +1,12 @@
 'use client';
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getTasks, createTask, updateTask, deleteTask } from '@/lib/api';
-import type { Task, CreateTaskData } from '@/types';
+import { getTasks, createTask, updateTask, deleteTask, getProjects } from '@/lib/api';
+import type { Task, CreateTaskData, ProjectWithChannels } from '@/types';
 import { CheckSquare, Plus, Trash2, Edit } from 'lucide-react';
 
 export default function TasksPage() {
@@ -14,22 +14,42 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [formData, setFormData] = useState({ title: '', description: '' });
+  const [formData, setFormData] = useState({ title: '', description: '', project_id: '' });
+  const [projects, setProjects] = useState<ProjectWithChannels[]>([]);
+  const [projectFilter, setProjectFilter] = useState<string>('all');
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await getTasks();
+      const data = await getTasks({
+        limit: 200,
+        projectId: projectFilter !== 'all' && projectFilter !== 'unassigned' ? projectFilter : undefined,
+        unassigned: projectFilter === 'unassigned',
+      });
       setTasks(data);
     } catch (error) {
       console.error('Error fetching tasks:', error);
     } finally {
       setLoading(false);
     }
+  }, [projectFilter]);
+
+  const fetchProjects = async () => {
+    try {
+      const data = await getProjects();
+      setProjects(data);
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+    }
   };
 
   useEffect(() => {
-    fetchTasks();
+    fetchProjects();
   }, []);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,12 +60,22 @@ export default function TasksPage() {
         await updateTask(editingTask.id, {
           title: formData.title,
           description: formData.description,
+          project_id: formData.project_id ? formData.project_id : null,
         });
       } else {
-        await createTask(formData as CreateTaskData);
+        const payload: CreateTaskData = {
+          title: formData.title,
+          description: formData.description || undefined,
+        };
+
+        if (formData.project_id) {
+          payload.project_id = formData.project_id;
+        }
+
+        await createTask(payload);
       }
 
-      setFormData({ title: '', description: '' });
+      setFormData({ title: '', description: '', project_id: '' });
       setShowForm(false);
       setEditingTask(null);
       fetchTasks();
@@ -76,13 +106,17 @@ export default function TasksPage() {
 
   const handleEdit = (task: Task) => {
     setEditingTask(task);
-    setFormData({ title: task.title, description: task.description || '' });
+    setFormData({
+      title: task.title,
+      description: task.description || '',
+      project_id: task.project_id || '',
+    });
     setShowForm(true);
   };
 
   const cancelEdit = () => {
     setEditingTask(null);
-    setFormData({ title: '', description: '' });
+    setFormData({ title: '', description: '', project_id: '' });
     setShowForm(false);
   };
 
@@ -102,15 +136,30 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Tasks</h1>
           <p className="text-muted-foreground">Manage your tasks and track progress</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
-          <Plus className="h-4 w-4" />
-          <span>Add Task</span>
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+          >
+            <option value="all">All projects</option>
+            <option value="unassigned">Unassigned</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
+            <Plus className="h-4 w-4" />
+            <span>Add Task</span>
+          </Button>
+        </div>
       </div>
 
       {/* Add/Edit Form */}
@@ -145,6 +194,24 @@ export default function TasksPage() {
                   className="w-full px-3 py-2 border border-input bg-background rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
                   rows={3}
                 />
+              </div>
+              <div>
+                <label htmlFor="project" className="block text-sm font-medium mb-1">
+                  Project
+                </label>
+                <select
+                  id="project"
+                  value={formData.project_id}
+                  onChange={(e) => setFormData(prev => ({ ...prev, project_id: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                >
+                  <option value="">Unassigned</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex space-x-2">
                 <Button type="submit">
@@ -183,7 +250,21 @@ export default function TasksPage() {
                       {task.completed && <CheckSquare className="h-3 w-3 text-white" />}
                     </button>
                     <div className="flex-1">
-                      <h4 className="font-medium">{task.title}</h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium">{task.title}</h4>
+                        {task.project ? (
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+                            style={{ backgroundColor: task.project.color || '#6366f1' }}
+                          >
+                            {task.project.name}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            Unassigned
+                          </span>
+                        )}
+                      </div>
                       {task.description && (
                         <p className="text-sm text-muted-foreground">{task.description}</p>
                       )}
@@ -234,7 +315,23 @@ export default function TasksPage() {
                       <CheckSquare className="h-3 w-3 text-white" />
                     </button>
                     <div className="flex-1">
-                      <h4 className="font-medium line-through text-muted-foreground">{task.title}</h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium line-through text-muted-foreground">
+                          {task.title}
+                        </h4>
+                        {task.project ? (
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+                            style={{ backgroundColor: task.project.color || '#22c55e' }}
+                          >
+                            {task.project.name}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            Unassigned
+                          </span>
+                        )}
+                      </div>
                       {task.description && (
                         <p className="text-sm text-muted-foreground line-through">{task.description}</p>
                       )}

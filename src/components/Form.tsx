@@ -14,16 +14,18 @@ interface FormField {
   options?: { value: string; label: string }[];
 }
 
+type FormValues = Record<string, string | number | boolean | null | undefined>;
+
 interface FormProps {
   title: string;
   fields: FormField[];
-  onSubmit: (data: Record<string, any>) => Promise<void>;
+  onSubmit: (data: FormValues) => Promise<void>;
   submitLabel?: string;
   isLoading?: boolean;
 }
 
 export function Form({ title, fields, onSubmit, submitLabel = 'Submit', isLoading = false }: FormProps) {
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<FormValues>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +33,7 @@ export function Form({ title, fields, onSubmit, submitLabel = 'Submit', isLoadin
     setFormData({});
   };
 
-  const handleChange = (name: string, value: any) => {
+  const handleChange = (name: string, value: string | number | boolean | null) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -54,7 +56,7 @@ export function Form({ title, fields, onSubmit, submitLabel = 'Submit', isLoadin
                   name={field.name}
                   placeholder={field.placeholder}
                   required={field.required}
-                  value={formData[field.name] || ''}
+                  value={formData[field.name] ?? ''}
                   onChange={(e) => handleChange(field.name, e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={3}
@@ -64,7 +66,7 @@ export function Form({ title, fields, onSubmit, submitLabel = 'Submit', isLoadin
                   id={field.name}
                   name={field.name}
                   required={field.required}
-                  value={formData[field.name] || ''}
+                  value={formData[field.name] ?? ''}
                   onChange={(e) => handleChange(field.name, e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >

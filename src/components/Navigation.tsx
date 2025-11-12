@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CheckSquare, DollarSign, Video, Heart } from 'lucide-react';
+import { CheckSquare, DollarSign, Video, Heart, FolderKanban } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: CheckSquare },
+  { name: 'Projects', href: '/projects', icon: FolderKanban },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Revenue', href: '/revenue', icon: DollarSign },
   { name: 'Content', href: '/content', icon: Video },

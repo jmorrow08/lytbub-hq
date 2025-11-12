@@ -1,12 +1,12 @@
 'use client';
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getContent, createContent, updateContent, deleteContent } from '@/lib/api';
-import type { Content, CreateContentData, UpdateContentData } from '@/types';
+import { getContent, createContent, updateContent, deleteContent, getProjects } from '@/lib/api';
+import type { Content, CreateContentData, UpdateContentData, ProjectWithChannels } from '@/types';
 import { Video, Plus, Eye, Calendar, Pencil, Trash } from 'lucide-react';
 
 const platforms = [
@@ -28,27 +28,48 @@ export default function ContentPage() {
     platform: '',
     views: '',
     url: '',
-    published_at: ''
+    published_at: '',
+    project_id: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingEntry, setEditingEntry] = useState<Content | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectWithChannels[]>([]);
+  const [projectFilter, setProjectFilter] = useState<string>('all');
 
-  const fetchContent = async () => {
+  const fetchContent = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await getContent();
+      const data = await getContent({
+        limit: 500,
+        projectId: projectFilter !== 'all' && projectFilter !== 'unassigned' ? projectFilter : undefined,
+        unassigned: projectFilter === 'unassigned',
+      });
       setContent(data);
     } catch (error) {
       console.error('Error fetching content:', error);
     } finally {
       setLoading(false);
     }
+  }, [projectFilter]);
+
+  const fetchProjects = async () => {
+    try {
+      const data = await getProjects();
+      setProjects(data);
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+    }
   };
 
   useEffect(() => {
-    fetchContent();
+    fetchProjects();
   }, []);
+
+  useEffect(() => {
+    fetchContent();
+  }, [fetchContent]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,12 +87,14 @@ export default function ContentPage() {
       const isoDate = formData.published_at
         ? new Date(`${formData.published_at}T00:00:00Z`).toISOString()
         : null;
+      const projectIdValue = formData.project_id || null;
 
       if (editingEntry) {
         const payload: UpdateContentData = {
           ...baseData,
           url: trimmedUrl || null,
           published_at: isoDate,
+          project_id: projectIdValue,
         };
 
         await updateContent(editingEntry.id, payload);
@@ -80,12 +103,13 @@ export default function ContentPage() {
           ...baseData,
           ...(trimmedUrl ? { url: trimmedUrl } : {}),
           ...(isoDate ? { published_at: isoDate } : {}),
+          ...(projectIdValue ? { project_id: projectIdValue } : {}),
         };
 
         await createContent(payload);
       }
 
-      setFormData({ title: '', platform: '', views: '', url: '', published_at: '' });
+      setFormData({ title: '', platform: '', views: '', url: '', published_at: '', project_id: '' });
       setShowForm(false);
       setIsEditing(false);
       setEditingEntry(null);
@@ -107,12 +131,13 @@ export default function ContentPage() {
       views: entry.views ? String(entry.views) : '',
       url: entry.url || '',
       published_at: entry.published_at ? entry.published_at.split('T')[0] : '',
+      project_id: entry.project_id || '',
     });
   };
 
   const resetFormState = () => {
     setShowForm(false);
-    setFormData({ title: '', platform: '', views: '', url: '', published_at: '' });
+    setFormData({ title: '', platform: '', views: '', url: '', published_at: '', project_id: '' });
     setIsEditing(false);
     setEditingEntry(null);
   };
@@ -157,21 +182,36 @@ export default function ContentPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Content</h1>
           <p className="text-muted-foreground">Track your content performance across platforms</p>
         </div>
-        <Button
-          onClick={() => {
-            resetFormState();
-            setShowForm(true);
-          }}
-          className="flex items-center space-x-2"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add Content</span>
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+          >
+            <option value="all">All projects</option>
+            <option value="unassigned">Unassigned</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            onClick={() => {
+              resetFormState();
+              setShowForm(true);
+            }}
+            className="flex items-center space-x-2"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Content</span>
+          </Button>
+        </div>
       </div>
 
       {/* Content Stats */}
@@ -291,6 +331,24 @@ export default function ContentPage() {
                   placeholder="https://..."
                 />
               </div>
+              <div>
+                <label htmlFor="project" className="block text-sm font-medium mb-1">
+                  Project
+                </label>
+                <select
+                  id="project"
+                  value={formData.project_id}
+                  onChange={(e) => setFormData(prev => ({ ...prev, project_id: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                >
+                  <option value="">Unassigned</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex space-x-2">
                 <Button type="submit" disabled={submitting}>
                   {submitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Content'}
@@ -319,61 +377,80 @@ export default function ContentPage() {
           ) : (
             <div className="space-y-4">
               {content.map((item) => (
-                <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                      <div>
-                        <h4 className="font-medium">{item.title}</h4>
-                        <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-                          <span className="flex items-center space-x-1">
-                            <Video className="h-3 w-3" />
-                            <span>{item.platform}</span>
-                          </span>
-                          <span className="flex items-center space-x-1">
-                            <Eye className="h-3 w-3" />
-                            <span>{item.views.toLocaleString()} views</span>
-                          </span>
-                          {item.published_at && (
+                <div key={item.id} className="p-4 border rounded-lg space-y-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-2 h-2 rounded-full bg-blue-500" />
+                        <div>
+                          <h4 className="font-medium">{item.title}</h4>
+                          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                             <span className="flex items-center space-x-1">
-                              <Calendar className="h-3 w-3" />
-                              <span>{new Date(item.published_at).toLocaleDateString()}</span>
+                              <Video className="h-3 w-3" />
+                              <span>{item.platform}</span>
                             </span>
+                            <span className="flex items-center space-x-1">
+                              <Eye className="h-3 w-3" />
+                              <span>{item.views.toLocaleString()} views</span>
+                            </span>
+                            {item.published_at && (
+                              <span className="flex items-center space-x-1">
+                                <Calendar className="h-3 w-3" />
+                                <span>{new Date(item.published_at).toLocaleDateString()}</span>
+                              </span>
+                            )}
+                          </div>
+                          {item.url && (
+                            <a
+                              href={item.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-blue-600 hover:underline"
+                            >
+                              View content →
+                            </a>
                           )}
                         </div>
-                        {item.url && (
-                          <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-blue-600 hover:underline"
-                          >
-                            View content →
-                          </a>
-                        )}
                       </div>
                     </div>
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => startEditingEntry(item)}
+                        className="flex items-center space-x-1"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        <span>Edit</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteEntry(item)}
+                        disabled={deletingId === item.id}
+                        className="flex items-center space-x-1 text-red-500"
+                      >
+                        <Trash className="h-4 w-4" />
+                        <span>{deletingId === item.id ? 'Deleting...' : 'Delete'}</span>
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2 ml-4">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => startEditingEntry(item)}
-                      className="flex items-center space-x-1"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      <span>Edit</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteEntry(item)}
-                      disabled={deletingId === item.id}
-                      className="flex items-center space-x-1 text-red-500"
-                    >
-                      <Trash className="h-4 w-4" />
-                      <span>{deletingId === item.id ? 'Deleting...' : 'Delete'}</span>
-                    </Button>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <div>
+                      {item.project ? (
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+                          style={{ backgroundColor: item.project.color || '#0ea5e9' }}
+                        >
+                          {item.project.name}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-medium">Unassigned</span>
+                      )}
+                    </div>
+                    {item.project?.default_handle && (
+                      <span className="text-[11px] font-medium">@{item.project.default_handle}</span>
+                    )}
                   </div>
                 </div>
               ))}
