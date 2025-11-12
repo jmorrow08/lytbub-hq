@@ -26,11 +26,7 @@ export const getTasks = async (): Promise<Task[]> => {
 };
 
 export const createTask = async (task: CreateTaskData): Promise<Task> => {
-  const { data, error } = await supabase
-    .from('tasks')
-    .insert(task)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('tasks').insert(task).select().single();
 
   if (error) throw error;
   return data;
@@ -66,11 +62,7 @@ export const getRevenue = async (): Promise<Revenue[]> => {
 };
 
 export const createRevenue = async (revenue: CreateRevenueData): Promise<Revenue> => {
-  const { data, error } = await supabase
-    .from('revenue')
-    .insert(revenue)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('revenue').insert(revenue).select().single();
 
   if (error) throw error;
   return data;
@@ -89,11 +81,7 @@ export const getContent = async (): Promise<Content[]> => {
 };
 
 export const createContent = async (content: CreateContentData): Promise<Content> => {
-  const { data, error } = await supabase
-    .from('content')
-    .insert(content)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('content').insert(content).select().single();
 
   if (error) throw error;
   return data;
@@ -117,9 +105,9 @@ export const getTodayHealth = async (): Promise<Health | null> => {
     .from('health')
     .select('*')
     .eq('date', today)
-    .single();
+    .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "not found"
+  if (error) throw error;
   return data;
 };
 
@@ -148,14 +136,15 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
   if (content.error) throw content.error;
 
   const totalTasks = tasks.data?.length || 0;
-  const completedTasks = tasks.data?.filter(t => t.completed).length || 0;
+  const completedTasks = tasks.data?.filter((t) => t.completed).length || 0;
   const totalRevenue = revenue.data?.reduce((sum, r) => sum + r.amount, 0) || 0;
 
   // Calculate today's revenue
   const today = new Date().toISOString().split('T')[0];
-  const todayRevenue = revenue.data
-    ?.filter(r => r.created_at.startsWith(today))
-    .reduce((sum, r) => sum + r.amount, 0) || 0;
+  const todayRevenue =
+    revenue.data
+      ?.filter((r) => r.created_at.startsWith(today))
+      .reduce((sum, r) => sum + r.amount, 0) || 0;
 
   const totalContent = content.data?.length || 0;
   const totalViews = content.data?.reduce((sum, c) => sum + c.views, 0) || 0;
