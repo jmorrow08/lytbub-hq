@@ -64,7 +64,7 @@ export default function ContentPage() {
 
       const trimmedUrl = formData.url.trim();
       const isoDate = formData.published_at
-        ? new Date(`${formData.published_at}T00:00:00`).toISOString()
+        ? new Date(`${formData.published_at}T00:00:00Z`).toISOString()
         : null;
 
       if (editingEntry) {
