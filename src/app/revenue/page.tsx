@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getRevenue, createRevenue } from '@/lib/api';
-import type { Revenue, CreateRevenueData } from '@/types';
-import { DollarSign, Plus } from 'lucide-react';
+import { getRevenue, createRevenue, updateRevenue, deleteRevenue } from '@/lib/api';
+import type { Revenue, CreateRevenueData, UpdateRevenueData } from '@/types';
+import { DollarSign, Plus, Pencil, Trash } from 'lucide-react';
 
 export default function RevenuePage() {
   const [revenue, setRevenue] = useState<Revenue[]>([]);
@@ -15,6 +15,9 @@ export default function RevenuePage() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ source: '', amount: '', description: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<Revenue | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchRevenue = async () => {
     try {
@@ -37,19 +40,67 @@ export default function RevenuePage() {
 
     setSubmitting(true);
     try {
-      await createRevenue({
-        source: formData.source,
-        amount: parseFloat(formData.amount),
-        description: formData.description,
-      } as CreateRevenueData);
+      const amountValue = parseFloat(formData.amount);
+      const baseDescription = formData.description.trim();
 
-      setFormData({ source: '', amount: '', description: '' });
-      setShowForm(false);
+      if (editingEntry) {
+        const payload: UpdateRevenueData = {
+          source: formData.source.trim(),
+          amount: amountValue,
+          description: baseDescription || undefined,
+        };
+
+        await updateRevenue(editingEntry.id, payload);
+      } else {
+        await createRevenue({
+          source: formData.source.trim(),
+          amount: amountValue,
+          description: baseDescription || undefined,
+        } as CreateRevenueData);
+      }
+
+      resetFormState();
       fetchRevenue();
     } catch (error) {
       console.error('Error creating revenue:', error);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const startEditingEntry = (entry: Revenue) => {
+    setIsEditing(true);
+    setEditingEntry(entry);
+    setShowForm(true);
+    setFormData({
+      source: entry.source,
+      amount: entry.amount.toString(),
+      description: entry.description || '',
+    });
+  };
+
+  const resetFormState = () => {
+    setShowForm(false);
+    setFormData({ source: '', amount: '', description: '' });
+    setIsEditing(false);
+    setEditingEntry(null);
+  };
+
+  const handleDeleteEntry = async (entry: Revenue) => {
+    const confirmed = window.confirm(`Delete revenue entry "${entry.source}" for $${entry.amount.toFixed(2)}?`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(entry.id);
+      await deleteRevenue(entry.id);
+      if (editingEntry?.id === entry.id) {
+        resetFormState();
+      }
+      fetchRevenue();
+    } catch (error) {
+      console.error('Error deleting revenue entry:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -80,7 +131,13 @@ export default function RevenuePage() {
           <h1 className="text-3xl font-bold">Revenue</h1>
           <p className="text-muted-foreground">Track your income sources and earnings</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
+        <Button
+          onClick={() => {
+            resetFormState();
+            setShowForm(true);
+          }}
+          className="flex items-center space-x-2"
+        >
           <Plus className="h-4 w-4" />
           <span>Add Revenue</span>
         </Button>
@@ -118,7 +175,7 @@ export default function RevenuePage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Add New Revenue</CardTitle>
+            <CardTitle>{isEditing ? 'Edit Revenue' : 'Add New Revenue'}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -164,15 +221,12 @@ export default function RevenuePage() {
               </div>
               <div className="flex space-x-2">
                 <Button type="submit" disabled={submitting}>
-                  {submitting ? 'Adding...' : 'Add Revenue'}
+                  {submitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Revenue'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setShowForm(false);
-                    setFormData({ source: '', amount: '', description: '' });
-                  }}
+                  onClick={resetFormState}
                 >
                   Cancel
                 </Button>
@@ -208,10 +262,29 @@ export default function RevenuePage() {
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-lg font-semibold text-green-600">
+                  <div className="flex items-center space-x-2">
+                    <div className="text-lg font-semibold text-green-600 mr-2">
                       ${item.amount.toFixed(2)}
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => startEditingEntry(item)}
+                      className="flex items-center space-x-1"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span>Edit</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteEntry(item)}
+                      disabled={deletingId === item.id}
+                      className="flex items-center space-x-1 text-red-500"
+                    >
+                      <Trash className="h-4 w-4" />
+                      <span>{deletingId === item.id ? 'Deleting...' : 'Delete'}</span>
+                    </Button>
                   </div>
                 </div>
               ))}

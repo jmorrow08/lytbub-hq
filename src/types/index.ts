@@ -64,12 +64,26 @@ export interface CreateRevenueData {
   description?: string;
 }
 
+export interface UpdateRevenueData {
+  source?: string;
+  amount?: number;
+  description?: string;
+}
+
 export interface CreateContentData {
   title: string;
   platform: string;
   views?: number;
   url?: string;
   published_at?: string;
+}
+
+export interface UpdateContentData {
+  title?: string;
+  platform?: string;
+  views?: number;
+  url?: string | null;
+  published_at?: string | null;
 }
 
 export interface CreateHealthData {

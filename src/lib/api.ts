@@ -8,7 +8,9 @@ import type {
   CreateTaskData,
   UpdateTaskData,
   CreateRevenueData,
+  UpdateRevenueData,
   CreateContentData,
+  UpdateContentData,
   CreateHealthData,
   UpdateHealthData,
 } from '@/types';
@@ -68,6 +70,23 @@ export const createRevenue = async (revenue: CreateRevenueData): Promise<Revenue
   return data;
 };
 
+export const updateRevenue = async (id: string, updates: UpdateRevenueData): Promise<Revenue> => {
+  const { data, error } = await supabase
+    .from('revenue')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const deleteRevenue = async (id: string): Promise<void> => {
+  const { error } = await supabase.from('revenue').delete().eq('id', id);
+  if (error) throw error;
+};
+
 // Content API
 export const getContent = async (): Promise<Content[]> => {
   const { data, error } = await supabase
@@ -85,6 +104,23 @@ export const createContent = async (content: CreateContentData): Promise<Content
 
   if (error) throw error;
   return data;
+};
+
+export const updateContent = async (id: string, updates: UpdateContentData): Promise<Content> => {
+  const { data, error } = await supabase
+    .from('content')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Content;
+};
+
+export const deleteContent = async (id: string): Promise<void> => {
+  const { error } = await supabase.from('content').delete().eq('id', id);
+  if (error) throw error;
 };
 
 // Health API

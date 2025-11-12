@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getContent, createContent } from '@/lib/api';
-import type { Content, CreateContentData } from '@/types';
-import { Video, Plus, Eye, Calendar } from 'lucide-react';
+import { getContent, createContent, updateContent, deleteContent } from '@/lib/api';
+import type { Content, CreateContentData, UpdateContentData } from '@/types';
+import { Video, Plus, Eye, Calendar, Pencil, Trash } from 'lucide-react';
 
 const platforms = [
   { value: 'YouTube', label: 'YouTube' },
@@ -31,6 +31,9 @@ export default function ContentPage() {
     published_at: ''
   });
   const [submitting, setSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<Content | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchContent = async () => {
     try {
@@ -53,21 +56,82 @@ export default function ContentPage() {
 
     setSubmitting(true);
     try {
-      await createContent({
-        title: formData.title,
+      const baseData = {
+        title: formData.title.trim(),
         platform: formData.platform,
-        views: formData.views ? parseInt(formData.views) : 0,
-        url: formData.url,
-        published_at: formData.published_at,
-      } as CreateContentData);
+        views: formData.views ? parseInt(formData.views, 10) : 0,
+      };
+
+      const trimmedUrl = formData.url.trim();
+      const isoDate = formData.published_at
+        ? new Date(`${formData.published_at}T00:00:00`).toISOString()
+        : null;
+
+      if (editingEntry) {
+        const payload: UpdateContentData = {
+          ...baseData,
+          url: trimmedUrl || null,
+          published_at: isoDate,
+        };
+
+        await updateContent(editingEntry.id, payload);
+      } else {
+        const payload: CreateContentData = {
+          ...baseData,
+          ...(trimmedUrl ? { url: trimmedUrl } : {}),
+          ...(isoDate ? { published_at: isoDate } : {}),
+        };
+
+        await createContent(payload);
+      }
 
       setFormData({ title: '', platform: '', views: '', url: '', published_at: '' });
       setShowForm(false);
+      setIsEditing(false);
+      setEditingEntry(null);
       fetchContent();
     } catch (error) {
       console.error('Error creating content:', error);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const startEditingEntry = (entry: Content) => {
+    setIsEditing(true);
+    setEditingEntry(entry);
+    setShowForm(true);
+    setFormData({
+      title: entry.title,
+      platform: entry.platform,
+      views: entry.views ? String(entry.views) : '',
+      url: entry.url || '',
+      published_at: entry.published_at ? entry.published_at.split('T')[0] : '',
+    });
+  };
+
+  const resetFormState = () => {
+    setShowForm(false);
+    setFormData({ title: '', platform: '', views: '', url: '', published_at: '' });
+    setIsEditing(false);
+    setEditingEntry(null);
+  };
+
+  const handleDeleteEntry = async (entry: Content) => {
+    const confirmed = window.confirm(`Delete content entry "${entry.title}"?`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(entry.id);
+      await deleteContent(entry.id);
+      if (editingEntry?.id === entry.id) {
+        resetFormState();
+      }
+      fetchContent();
+    } catch (error) {
+      console.error('Error deleting content entry:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -98,7 +162,13 @@ export default function ContentPage() {
           <h1 className="text-3xl font-bold">Content</h1>
           <p className="text-muted-foreground">Track your content performance across platforms</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
+        <Button
+          onClick={() => {
+            resetFormState();
+            setShowForm(true);
+          }}
+          className="flex items-center space-x-2"
+        >
           <Plus className="h-4 w-4" />
           <span>Add Content</span>
         </Button>
@@ -148,7 +218,7 @@ export default function ContentPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Add New Content</CardTitle>
+            <CardTitle>{isEditing ? 'Edit Content' : 'Add New Content'}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -223,15 +293,12 @@ export default function ContentPage() {
               </div>
               <div className="flex space-x-2">
                 <Button type="submit" disabled={submitting}>
-                  {submitting ? 'Adding...' : 'Add Content'}
+                  {submitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Content'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setShowForm(false);
-                    setFormData({ title: '', platform: '', views: '', url: '', published_at: '' });
-                  }}
+                  onClick={resetFormState}
                 >
                   Cancel
                 </Button>
@@ -286,6 +353,27 @@ export default function ContentPage() {
                         )}
                       </div>
                     </div>
+                  </div>
+                  <div className="flex items-center space-x-2 ml-4">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => startEditingEntry(item)}
+                      className="flex items-center space-x-1"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span>Edit</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteEntry(item)}
+                      disabled={deletingId === item.id}
+                      className="flex items-center space-x-1 text-red-500"
+                    >
+                      <Trash className="h-4 w-4" />
+                      <span>{deletingId === item.id ? 'Deleting...' : 'Delete'}</span>
+                    </Button>
                   </div>
                 </div>
               ))}
