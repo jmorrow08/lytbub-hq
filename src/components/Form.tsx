@@ -14,7 +14,7 @@ interface FormField {
   options?: { value: string; label: string }[];
 }
 
-type FormValues = Record<string, string | number | boolean | null | undefined>;
+type FormValues = Record<string, string | number | null | undefined>;
 
 interface FormProps {
   title: string;
@@ -33,7 +33,7 @@ export function Form({ title, fields, onSubmit, submitLabel = 'Submit', isLoadin
     setFormData({});
   };
 
-  const handleChange = (name: string, value: string | number | boolean | null) => {
+  const handleChange = (name: string, value: string | number | null) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -84,8 +84,19 @@ export function Form({ title, fields, onSubmit, submitLabel = 'Submit', isLoadin
                   type={field.type}
                   placeholder={field.placeholder}
                   required={field.required}
-                  value={formData[field.name] || ''}
-                  onChange={(e) => handleChange(field.name, e.target.value)}
+                  value={
+                    field.type === 'number'
+                      ? (formData[field.name] as number | undefined) ?? ''
+                      : (formData[field.name] as string | undefined) ?? ''
+                  }
+                  onChange={(e) =>
+                    handleChange(
+                      field.name,
+                      field.type === 'number'
+                        ? (e.target.value === '' ? null : Number(e.target.value))
+                        : e.target.value
+                    )
+                  }
                 />
               )}
             </div>
