@@ -21,6 +21,7 @@ export default function HealthPage() {
     notes: ''
   });
   const [submitting, setSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const fetchHealth = async () => {
     try {
@@ -46,8 +47,14 @@ export default function HealthPage() {
 
     setSubmitting(true);
     try {
+      // Use local date string to avoid UTC boundary issues
+      const now = new Date();
+      const dateString = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+        .toISOString()
+        .split('T')[0];
+
       await createOrUpdateHealth({
-        date: new Date().toISOString().split('T')[0],
+        date: dateString,
         energy: formData.energy ? parseInt(formData.energy) : undefined,
         sleep_hours: formData.sleep_hours ? parseFloat(formData.sleep_hours) : undefined,
         workout: formData.workout,
@@ -56,6 +63,7 @@ export default function HealthPage() {
 
       setFormData({ energy: '', sleep_hours: '', workout: false, notes: '' });
       setShowForm(false);
+      setIsEditing(false);
       fetchHealth();
     } catch (error) {
       console.error('Error saving health:', error);
@@ -96,6 +104,25 @@ export default function HealthPage() {
           <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
             <Heart className="h-4 w-4" />
             <span>Log Today's Health</span>
+          </Button>
+        )}
+        {todayHealth && (
+          <Button
+            onClick={() => {
+              setIsEditing(true);
+              setShowForm(true);
+              setFormData({
+                energy: todayHealth.energy ? String(todayHealth.energy) : '',
+                sleep_hours: todayHealth.sleep_hours ? String(todayHealth.sleep_hours) : '',
+                workout: !!todayHealth.workout,
+                notes: todayHealth.notes || ''
+              });
+            }}
+            className="flex items-center space-x-2"
+            variant="outline"
+          >
+            <Heart className="h-4 w-4" />
+            <span>Edit Today</span>
           </Button>
         )}
       </div>
@@ -198,7 +225,7 @@ export default function HealthPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Log Today's Health</CardTitle>
+            <CardTitle>{isEditing ? "Edit Today's Health" : "Log Today's Health"}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">

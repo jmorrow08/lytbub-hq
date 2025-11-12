@@ -100,40 +100,60 @@ export const getHealth = async (): Promise<Health[]> => {
 };
 
 export const getTodayHealth = async (): Promise<Health | null> => {
-  // Use local date to match the database date column
-  const today = new Date();
-  const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000);
-  const dateString = localDate.toISOString().split('T')[0];
+  // Use local date to match the database date column and avoid UTC boundary issues
+  const now = new Date();
+  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .split('T')[0];
 
   const { data, error } = await supabase
     .from('health')
     .select('*')
-    .eq('date', dateString)
-    .order('updated_at', { ascending: false })
-    .limit(1);
+    .eq('date', localDate)
+    .maybeSingle(); // Avoids 406 when no rows
 
   if (error) {
     console.error('Error fetching today health:', error);
     return null;
   }
-  return data && data.length > 0 ? (data[0] as Health) : null;
+  return (data as Health) ?? null;
 };
 
 export const createOrUpdateHealth = async (health: CreateHealthData): Promise<Health> => {
-  const { data, error } = await supabase
-    .from('health')
-    .upsert(
-      { ...health, updated_at: new Date().toISOString() },
-      {
-        onConflict: 'date',
-        ignoreDuplicates: false,
-      },
-    )
-    .select()
-    .single();
+  const payload = { ...health, updated_at: new Date().toISOString() };
+  // First, try to use upsert when a unique(date) constraint exists
+  try {
+    const { data, error } = await supabase
+      .from('health')
+      .upsert(payload, { onConflict: 'date', ignoreDuplicates: false })
+      .select()
+      .single();
 
-  if (error) throw error;
-  return data;
+    if (error) throw error;
+    return data as Health;
+  } catch (err: any) {
+    // Fallback path when ON CONFLICT target doesn't exist in DB yet
+    // Try update-by-date, then insert if no row was updated
+    const updateAttempt = await supabase
+      .from('health')
+      .update(payload)
+      .eq('date', health.date)
+      .select()
+      .maybeSingle();
+
+    if (!updateAttempt.error && updateAttempt.data) {
+      return updateAttempt.data as Health;
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('health')
+      .insert(health)
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
+    return inserted as Health;
+  }
 };
 
 // Dashboard Stats API
