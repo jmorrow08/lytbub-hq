@@ -105,10 +105,10 @@ export const getTodayHealth = async (): Promise<Health | null> => {
     .from('health')
     .select('*')
     .eq('date', today)
-    .maybeSingle();
+    .limit(1);
 
   if (error) throw error;
-  return data;
+  return data && data.length > 0 ? (data[0] as Health) : null;
 };
 
 export const createOrUpdateHealth = async (health: CreateHealthData): Promise<Health> => {
