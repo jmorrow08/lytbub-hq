@@ -100,21 +100,35 @@ export const getHealth = async (): Promise<Health[]> => {
 };
 
 export const getTodayHealth = async (): Promise<Health | null> => {
-  const today = new Date().toISOString().split('T')[0];
+  // Use local date to match the database date column
+  const today = new Date();
+  const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000);
+  const dateString = localDate.toISOString().split('T')[0];
+
   const { data, error } = await supabase
     .from('health')
     .select('*')
-    .eq('date', today)
+    .eq('date', dateString)
+    .order('updated_at', { ascending: false })
     .limit(1);
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error fetching today health:', error);
+    return null;
+  }
   return data && data.length > 0 ? (data[0] as Health) : null;
 };
 
 export const createOrUpdateHealth = async (health: CreateHealthData): Promise<Health> => {
   const { data, error } = await supabase
     .from('health')
-    .upsert(health, { onConflict: 'date' })
+    .upsert(
+      { ...health, updated_at: new Date().toISOString() },
+      {
+        onConflict: 'date',
+        ignoreDuplicates: false,
+      },
+    )
     .select()
     .single();
 
