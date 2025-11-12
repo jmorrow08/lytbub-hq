@@ -5,9 +5,19 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getHealth, createOrUpdateHealth, getTodayHealth } from '@/lib/api';
-import type { Health, CreateHealthData } from '@/types';
-import { Heart, Activity, Moon, Dumbbell, Calendar } from 'lucide-react';
+import { getHealth, createOrUpdateHealth, getTodayHealth, updateHealth, deleteHealth } from '@/lib/api';
+import type { Health, CreateHealthData, UpdateHealthData } from '@/types';
+import { Heart, Activity, Moon, Dumbbell, Calendar, Pencil, Trash } from 'lucide-react';
+
+const dateFormatOptions: Intl.DateTimeFormatOptions = {
+  weekday: 'long',
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+};
+
+const formatEntryDate = (date: string) =>
+  new Date(date).toLocaleDateString('en-US', dateFormatOptions);
 
 export default function HealthPage() {
   const [health, setHealth] = useState<Health[]>([]);
@@ -22,6 +32,8 @@ export default function HealthPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<Health | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchHealth = async () => {
     try {
@@ -47,28 +59,71 @@ export default function HealthPage() {
 
     setSubmitting(true);
     try {
-      // Use local date string to avoid UTC boundary issues
-      const now = new Date();
-      const dateString = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-        .toISOString()
-        .split('T')[0];
-
-      await createOrUpdateHealth({
-        date: dateString,
-        energy: formData.energy ? parseInt(formData.energy) : undefined,
+      const payload: UpdateHealthData = {
+        energy: formData.energy ? parseInt(formData.energy, 10) : undefined,
         sleep_hours: formData.sleep_hours ? parseFloat(formData.sleep_hours) : undefined,
         workout: formData.workout,
         notes: formData.notes,
-      } as CreateHealthData);
+      };
+
+      if (editingEntry) {
+        await updateHealth(editingEntry.id, payload);
+      } else {
+        // Use local date string to avoid UTC boundary issues
+        const now = new Date();
+        const dateString = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+          .toISOString()
+          .split('T')[0];
+
+        await createOrUpdateHealth({
+          date: dateString,
+          ...payload,
+          workout: formData.workout,
+        } as CreateHealthData);
+      }
 
       setFormData({ energy: '', sleep_hours: '', workout: false, notes: '' });
       setShowForm(false);
       setIsEditing(false);
+      setEditingEntry(null);
       fetchHealth();
     } catch (error) {
       console.error('Error saving health:', error);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const startEditingEntry = (entry: Health) => {
+    setIsEditing(true);
+    setEditingEntry(entry);
+    setShowForm(true);
+    setFormData({
+      energy: typeof entry.energy === 'number' ? String(entry.energy) : '',
+      sleep_hours: typeof entry.sleep_hours === 'number' ? String(entry.sleep_hours) : '',
+      workout: Boolean(entry.workout),
+      notes: entry.notes || '',
+    });
+  };
+
+  const handleDeleteEntry = async (entry: Health) => {
+    const confirmed = window.confirm(`Delete health log for ${formatEntryDate(entry.date)}?`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(entry.id);
+      await deleteHealth(entry.id);
+      if (editingEntry?.id === entry.id) {
+        setEditingEntry(null);
+        setIsEditing(false);
+        setFormData({ energy: '', sleep_hours: '', workout: false, notes: '' });
+        setShowForm(false);
+      }
+      fetchHealth();
+    } catch (error) {
+      console.error('Error deleting health entry:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -101,7 +156,15 @@ export default function HealthPage() {
           <p className="text-muted-foreground">Track your daily wellness metrics</p>
         </div>
         {!todayHealth && (
-          <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
+          <Button
+            onClick={() => {
+              setIsEditing(false);
+              setEditingEntry(null);
+              setFormData({ energy: '', sleep_hours: '', workout: false, notes: '' });
+              setShowForm(true);
+            }}
+            className="flex items-center space-x-2"
+          >
             <Heart className="h-4 w-4" />
             <span>Log Today's Health</span>
           </Button>
@@ -109,14 +172,7 @@ export default function HealthPage() {
         {todayHealth && (
           <Button
             onClick={() => {
-              setIsEditing(true);
-              setShowForm(true);
-              setFormData({
-                energy: todayHealth.energy ? String(todayHealth.energy) : '',
-                sleep_hours: todayHealth.sleep_hours ? String(todayHealth.sleep_hours) : '',
-                workout: !!todayHealth.workout,
-                notes: todayHealth.notes || ''
-              });
+              startEditingEntry(todayHealth);
             }}
             className="flex items-center space-x-2"
             variant="outline"
@@ -225,7 +281,11 @@ export default function HealthPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>{isEditing ? "Edit Today's Health" : "Log Today's Health"}</CardTitle>
+            <CardTitle>
+              {isEditing
+                ? `Edit ${editingEntry ? formatEntryDate(editingEntry.date) : "Today's"} Health`
+                : "Log Today's Health"}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -294,6 +354,8 @@ export default function HealthPage() {
                   onClick={() => {
                     setShowForm(false);
                     setFormData({ energy: '', sleep_hours: '', workout: false, notes: '' });
+                    setIsEditing(false);
+                    setEditingEntry(null);
                   }}
                 >
                   Cancel
@@ -320,14 +382,7 @@ export default function HealthPage() {
                     <div className="flex items-center space-x-3">
                       <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                       <div>
-                        <h4 className="font-medium">
-                          {new Date(entry.date).toLocaleDateString('en-US', {
-                            weekday: 'long',
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                          })}
-                        </h4>
+                        <h4 className="font-medium">{formatEntryDate(entry.date)}</h4>
                         <div className="flex items-center space-x-4 text-sm text-muted-foreground mt-1">
                           {entry.energy && (
                             <span className="flex items-center space-x-1">
@@ -351,6 +406,27 @@ export default function HealthPage() {
                         )}
                       </div>
                     </div>
+                  </div>
+                  <div className="flex items-center space-x-2 ml-4">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => startEditingEntry(entry)}
+                      className="flex items-center space-x-1"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span>Edit</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteEntry(entry)}
+                      disabled={deletingId === entry.id}
+                      className="flex items-center space-x-1 text-red-500"
+                    >
+                      <Trash className="h-4 w-4" />
+                      <span>{deletingId === entry.id ? 'Deleting...' : 'Delete'}</span>
+                    </Button>
                   </div>
                 </div>
               ))}

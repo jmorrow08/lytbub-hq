@@ -156,6 +156,23 @@ export const createOrUpdateHealth = async (health: CreateHealthData): Promise<He
   }
 };
 
+export const updateHealth = async (id: string, updates: UpdateHealthData): Promise<Health> => {
+  const { data, error } = await supabase
+    .from('health')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Health;
+};
+
+export const deleteHealth = async (id: string): Promise<void> => {
+  const { error } = await supabase.from('health').delete().eq('id', id);
+  if (error) throw error;
+};
+
 // Dashboard Stats API
 export const getDashboardStats = async (): Promise<DashboardStats> => {
   const [tasks, revenue, content, todayHealth] = await Promise.all([
