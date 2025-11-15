@@ -31,7 +31,18 @@ ALTER TABLE public.health
 UPDATE public.health
 SET
   day_key = COALESCE(day_key, TO_CHAR(date, 'YYYY-MM-DD')),
-  day_start_utc = COALESCE(day_start_utc, (date::timestamp AT TIME ZONE 'UTC')),
+  day_start_utc = COALESCE(
+    day_start_utc,
+    make_timestamptz(
+      EXTRACT(YEAR FROM date)::int,
+      EXTRACT(MONTH FROM date)::int,
+      EXTRACT(DAY FROM date)::int,
+      0,
+      0,
+      0,
+      COALESCE(timezone, 'America/New_York')
+    )
+  ),
   timezone = COALESCE(timezone, 'America/New_York')
 WHERE day_key IS NULL
    OR day_start_utc IS NULL

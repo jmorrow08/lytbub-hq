@@ -6,7 +6,7 @@ import {
   getZonedDayKey,
 } from './timezone';
 import { addDays, addMonths } from 'date-fns';
-import { zonedTimeToUtc } from 'date-fns-tz';
+import { fromZonedTime } from 'date-fns-tz';
 import type {
   Task,
   Revenue,
@@ -260,7 +260,7 @@ export const createOrUpdateHealth = async (health: CreateHealthData): Promise<He
 
   const referenceDate = health.day_start_utc
     ? new Date(health.day_start_utc)
-    : zonedTimeToUtc(`${dayKey}T00:00:00`, timezone);
+    : fromZonedTime(`${dayKey}T00:00:00`, timezone);
 
   const dayStartUtc = getStartOfZonedDayUTC(referenceDate, timezone).toISOString();
 
@@ -276,21 +276,30 @@ export const createOrUpdateHealth = async (health: CreateHealthData): Promise<He
     notes: health.notes,
   };
 
-  const matchFilters: Record<string, string> = { day_key: dayKey };
+  let existingQuery = supabase.from('health').select('id').eq('day_key', dayKey);
+
   if (userId) {
-    matchFilters.user_id = userId;
+    existingQuery = existingQuery.eq('user_id', userId);
+  } else {
+    existingQuery = existingQuery.is('user_id', null);
   }
 
-  const existing = await supabase.from('health').select('id').match(matchFilters).maybeSingle();
+  const { data: existingRows, error: existingError } = await existingQuery
+    .order('updated_at', { ascending: false })
+    .limit(1);
 
-  if (existing.data?.id) {
+  if (existingError) throw existingError;
+
+  const existingId = existingRows?.[0]?.id as string | undefined;
+
+  if (existingId) {
     const { data, error } = await supabase
       .from('health')
       .update({
         ...payload,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', existing.data.id)
+      .eq('id', existingId)
       .select()
       .single();
 

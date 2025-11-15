@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { addMonths, startOfDay, startOfMonth, format } from 'date-fns';
-import { utcToZonedTime, zonedTimeToUtc } from 'date-fns-tz';
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 
 const DEFAULT_TIMEZONE = 'America/New_York';
 
@@ -57,28 +57,28 @@ export async function getActiveTimezone(client: SupabaseClient): Promise<string>
 }
 
 export function getZonedDayKey(date: Date, timezone: string): string {
-  const zoned = utcToZonedTime(date, timezone);
+  const zoned = toZonedTime(date, timezone);
   return format(zoned, 'yyyy-MM-dd');
 }
 
 export function getStartOfZonedDayUTC(date: Date, timezone: string): Date {
-  const zoned = utcToZonedTime(date, timezone);
+  const zoned = toZonedTime(date, timezone);
   const start = startOfDay(zoned);
-  return zonedTimeToUtc(start, timezone);
+  return fromZonedTime(start, timezone);
 }
 
 export function getMonthRangeUTC(month: Date, timezone: string): { startUtc: Date; endUtc: Date } {
-  const zonedMonth = utcToZonedTime(month, timezone);
+  const zonedMonth = toZonedTime(month, timezone);
   const startLocal = startOfMonth(zonedMonth);
   const nextMonthLocal = addMonths(startLocal, 1);
 
   return {
-    startUtc: zonedTimeToUtc(startLocal, timezone),
-    endUtc: zonedTimeToUtc(nextMonthLocal, timezone),
+    startUtc: fromZonedTime(startLocal, timezone),
+    endUtc: fromZonedTime(nextMonthLocal, timezone),
   };
 }
 
 export function formatMonthLabel(month: Date, timezone: string): string {
-  const zoned = utcToZonedTime(month, timezone);
+  const zoned = toZonedTime(month, timezone);
   return format(zoned, 'MMM yyyy');
 }
