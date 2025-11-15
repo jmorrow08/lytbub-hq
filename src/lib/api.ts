@@ -441,7 +441,16 @@ export const getProject = async (id: string): Promise<ProjectWithChannels> => {
 };
 
 export const createProject = async (payload: CreateProjectData): Promise<Project> => {
-  const { data, error } = await supabase.from('projects').insert(payload).select().single();
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to create projects.');
+  }
+
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({ ...payload, created_by: userId })
+    .select()
+    .single();
   if (error) throw error;
   return data as Project;
 };
@@ -500,11 +509,12 @@ export const deleteProjectChannel = async (id: string): Promise<void> => {
 
 // Finance API
 export const getClientProjects = async (): Promise<Project[]> => {
-  const { data, error } = await supabase
-    .from('projects')
-    .select('*')
-    .eq('type', 'client')
-    .order('name', { ascending: true });
+  const userId = await getCurrentUserId();
+  let query = supabase.from('projects').select('*').eq('type', 'client').order('name', { ascending: true });
+  if (userId) {
+    query = query.eq('created_by', userId);
+  }
+  const { data, error } = await query;
 
   if (error) throw error;
   return (data as Project[]) || [];

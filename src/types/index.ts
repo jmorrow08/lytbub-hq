@@ -9,6 +9,7 @@ export interface Project {
   default_platform?: string | null;
   default_handle?: string | null;
   notes?: string | null;
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
 }
