@@ -7,6 +7,8 @@ ALTER TABLE public.payments
 
 -- Ensure existing rows are owned so RLS does not lock them out
 DO $$
+DECLARE
+  unmatched_count integer;
 BEGIN
   IF EXISTS (
     SELECT 1
@@ -26,6 +28,14 @@ BEGIN
     FROM public.clients c
     WHERE p.created_by IS NULL
       AND p.client_id = c.id;
+  END IF;
+
+  SELECT COUNT(*) INTO unmatched_count
+  FROM public.payments
+  WHERE created_by IS NULL;
+
+  IF unmatched_count > 0 THEN
+    RAISE EXCEPTION 'Cannot enable payments RLS because % payment rows still have NULL created_by values. Backfill them before rerunning migration.', unmatched_count;
   END IF;
 END $$;
 
