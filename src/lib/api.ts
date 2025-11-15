@@ -30,6 +30,9 @@ import type {
   ProjectStats,
   DashboardProjectSummary,
   ProjectWithChannels,
+  Client,
+  Payment,
+  CreateClientData,
 } from '@/types';
 
 type TaskQueryOptions = {
@@ -495,4 +498,41 @@ export const updateProjectChannel = async (
 export const deleteProjectChannel = async (id: string): Promise<void> => {
   const { error } = await supabase.from('project_channels').delete().eq('id', id);
   if (error) throw error;
+};
+
+// Finance API
+export const getClients = async (): Promise<Client[]> => {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data as Client[]) || [];
+};
+
+export const createClient = async (payload: CreateClientData): Promise<Client> => {
+  const { data, error } = await supabase
+    .from('clients')
+    .insert({
+      name: payload.name,
+      email: payload.email || null,
+      phone: payload.phone || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Client;
+};
+
+export const getPayments = async (): Promise<Payment[]> => {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*, client:clients(*)')
+    .order('created_at', { ascending: false })
+    .limit(25);
+
+  if (error) throw error;
+  return (data as Payment[]) || [];
 };
