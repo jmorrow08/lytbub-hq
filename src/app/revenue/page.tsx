@@ -1,13 +1,15 @@
 'use client';
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getRevenue, createRevenue, updateRevenue, deleteRevenue } from '@/lib/api';
 import type { Revenue, CreateRevenueData, UpdateRevenueData } from '@/types';
 import { DollarSign, Plus, Pencil, Trash } from 'lucide-react';
+import { getActiveTimezone, getMonthRangeUTC } from '@/lib/timezone';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function RevenuePage() {
   const [revenue, setRevenue] = useState<Revenue[]>([]);
@@ -18,6 +20,7 @@ export default function RevenuePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingEntry, setEditingEntry] = useState<Revenue | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [activeTimezone, setActiveTimezone] = useState('America/New_York');
 
   const fetchRevenue = async () => {
     try {
@@ -32,6 +35,15 @@ export default function RevenuePage() {
 
   useEffect(() => {
     fetchRevenue();
+  }, []);
+
+  useEffect(() => {
+    const resolveTimezone = async () => {
+      const tz = await getActiveTimezone(supabase);
+      setActiveTimezone(tz);
+    };
+
+    resolveTimezone();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,13 +117,16 @@ export default function RevenuePage() {
   };
 
   const totalRevenue = revenue.reduce((sum, item) => sum + item.amount, 0);
-  const thisMonthRevenue = revenue
-    .filter(item => {
-      const itemDate = new Date(item.created_at);
-      const now = new Date();
-      return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
-    })
-    .reduce((sum, item) => sum + item.amount, 0);
+  const thisMonthRevenue = useMemo(() => {
+    if (revenue.length === 0) return 0;
+    const { startUtc, endUtc } = getMonthRangeUTC(new Date(), activeTimezone);
+    return revenue
+      .filter(item => {
+        const createdAt = new Date(item.created_at);
+        return createdAt >= startUtc && createdAt < endUtc;
+      })
+      .reduce((sum, item) => sum + item.amount, 0);
+  }, [revenue, activeTimezone]);
 
   if (loading) {
     return (

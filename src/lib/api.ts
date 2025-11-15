@@ -1,4 +1,12 @@
 import { supabase } from './supabaseClient';
+import {
+  getActiveTimezone,
+  getMonthRangeUTC,
+  getStartOfZonedDayUTC,
+  getZonedDayKey,
+} from './timezone';
+import { addDays, addMonths } from 'date-fns';
+import { zonedTimeToUtc } from 'date-fns-tz';
 import type {
   Task,
   Revenue,
@@ -34,6 +42,24 @@ type ContentQueryOptions = {
   projectId?: string;
   limit?: number;
   unassigned?: boolean;
+};
+
+const getCurrentUserId = async (): Promise<string | null> => {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.user?.id ?? null;
+  } catch (error) {
+    console.warn('Unable to resolve Supabase user session', error);
+    return null;
+  }
+};
+
+const fetchHealthEntryForDay = (dayKey: string, userId: string | null) => {
+  let query = supabase.from('health').select('*').eq('day_key', dayKey);
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+  return query.maybeSingle();
 };
 
 // Tasks API
@@ -192,71 +218,94 @@ export const deleteContent = async (id: string): Promise<void> => {
 
 // Health API
 export const getHealth = async (): Promise<Health[]> => {
-  const { data, error } = await supabase
+  const userId = await getCurrentUserId();
+
+  let query = supabase
     .from('health')
     .select('*')
+    .order('day_start_utc', { ascending: false, nullsFirst: false })
     .order('date', { ascending: false })
     .limit(5);
+
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return data || [];
 };
 
 export const getTodayHealth = async (): Promise<Health | null> => {
-  // Use local date to match the database date column and avoid UTC boundary issues
-  const now = new Date();
-  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    .toISOString()
-    .split('T')[0];
+  const timezone = await getActiveTimezone(supabase);
+  const userId = await getCurrentUserId();
+  const dayKey = getZonedDayKey(new Date(), timezone);
 
-  const { data, error } = await supabase
-    .from('health')
-    .select('*')
-    .eq('date', localDate)
-    .maybeSingle(); // Avoids 406 when no rows
+  const { data, error } = await fetchHealthEntryForDay(dayKey, userId);
 
   if (error) {
     console.error('Error fetching today health:', error);
     return null;
   }
+
   return (data as Health) ?? null;
 };
 
 export const createOrUpdateHealth = async (health: CreateHealthData): Promise<Health> => {
-  const payload = { ...health, updated_at: new Date().toISOString() };
-  // First, try to use upsert when a unique(date) constraint exists
-  try {
+  const timezone = health.timezone || (await getActiveTimezone(supabase));
+  const userId = health.user_id ?? (await getCurrentUserId());
+  const now = new Date();
+  const dayKey = health.day_key || health.date || getZonedDayKey(now, timezone);
+
+  const referenceDate = health.day_start_utc
+    ? new Date(health.day_start_utc)
+    : zonedTimeToUtc(`${dayKey}T00:00:00`, timezone);
+
+  const dayStartUtc = getStartOfZonedDayUTC(referenceDate, timezone).toISOString();
+
+  const payload = {
+    date: dayKey,
+    day_key: dayKey,
+    day_start_utc: dayStartUtc,
+    timezone,
+    user_id: userId ?? null,
+    energy: health.energy,
+    sleep_hours: health.sleep_hours,
+    workout: Boolean(health.workout),
+    notes: health.notes,
+  };
+
+  const matchFilters: Record<string, string> = { day_key: dayKey };
+  if (userId) {
+    matchFilters.user_id = userId;
+  }
+
+  const existing = await supabase.from('health').select('id').match(matchFilters).maybeSingle();
+
+  if (existing.data?.id) {
     const { data, error } = await supabase
       .from('health')
-      .upsert(payload, { onConflict: 'date', ignoreDuplicates: false })
+      .update({
+        ...payload,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.data.id)
       .select()
       .single();
 
     if (error) throw error;
     return data as Health;
-  } catch {
-    // Fallback path when ON CONFLICT target doesn't exist in DB yet
-    // Try update-by-date, then insert if no row was updated
-    const updateAttempt = await supabase
-      .from('health')
-      .update(payload)
-      .eq('date', health.date)
-      .select()
-      .maybeSingle();
-
-    if (!updateAttempt.error && updateAttempt.data) {
-      return updateAttempt.data as Health;
-    }
-
-    const { data: inserted, error: insertError } = await supabase
-      .from('health')
-      .insert(health)
-      .select()
-      .single();
-
-    if (insertError) throw insertError;
-    return inserted as Health;
   }
+
+  const { data, error } = await supabase
+    .from('health')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Health;
 };
 
 export const updateHealth = async (id: string, updates: UpdateHealthData): Promise<Health> => {
@@ -278,13 +327,22 @@ export const deleteHealth = async (id: string): Promise<void> => {
 
 // Dashboard Stats API
 export const getDashboardStats = async (): Promise<DashboardStats> => {
-  const [tasks, revenue, content, todayHealth, projects, projectStats] = await Promise.all([
+  const timezone = await getActiveTimezone(supabase);
+  const userId = await getCurrentUserId();
+  const now = new Date();
+  const dayKey = getZonedDayKey(now, timezone);
+  const todayStartUtc = getStartOfZonedDayUTC(now, timezone);
+  const tomorrowStartUtc = addDays(todayStartUtc, 1);
+  const currentMonthRange = getMonthRangeUTC(now, timezone);
+  const previousMonthRange = getMonthRangeUTC(addMonths(now, -1), timezone);
+
+  const [tasks, revenue, content, projects, projectStats, todayHealthResponse] = await Promise.all([
     supabase.from('tasks').select('completed, project_id'),
     supabase.from('revenue').select('amount, created_at'),
     supabase.from('content').select('views, project_id'),
-    getTodayHealth(),
     supabase.from('projects').select('*'),
     supabase.from('project_stats').select('*'),
+    fetchHealthEntryForDay(dayKey, userId),
   ]);
 
   if (tasks.error) throw tasks.error;
@@ -297,12 +355,27 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
   const completedTasks = tasks.data?.filter((t) => t.completed).length || 0;
   const totalRevenue = revenue.data?.reduce((sum, r) => sum + r.amount, 0) || 0;
 
-  // Calculate today's revenue
-  const today = new Date().toISOString().split('T')[0];
-  const todayRevenue =
-    revenue.data
-      ?.filter((r) => r.created_at.startsWith(today))
-      .reduce((sum, r) => sum + r.amount, 0) || 0;
+  const revenueRows = revenue.data || [];
+  const todayRevenue = revenueRows
+    .filter((r) => {
+      const createdAt = new Date(r.created_at);
+      return createdAt >= todayStartUtc && createdAt < tomorrowStartUtc;
+    })
+    .reduce((sum, r) => sum + r.amount, 0);
+
+  const currentMonthRevenue = revenueRows
+    .filter((r) => {
+      const createdAt = new Date(r.created_at);
+      return createdAt >= currentMonthRange.startUtc && createdAt < currentMonthRange.endUtc;
+    })
+    .reduce((sum, r) => sum + r.amount, 0);
+
+  const previousMonthRevenue = revenueRows
+    .filter((r) => {
+      const createdAt = new Date(r.created_at);
+      return createdAt >= previousMonthRange.startUtc && createdAt < previousMonthRange.endUtc;
+    })
+    .reduce((sum, r) => sum + r.amount, 0);
 
   const totalContent = content.data?.length || 0;
   const totalViews = content.data?.reduce((sum, c) => sum + c.views, 0) || 0;
@@ -325,15 +398,22 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
       .sort((a, b) => b.totalViews - a.totalViews)
       .slice(0, 4) || [];
 
+  if (todayHealthResponse.error) {
+    console.error('Dashboard health fetch error:', todayHealthResponse.error);
+  }
+
   return {
     totalTasks,
     completedTasks,
     totalRevenue,
     todayRevenue,
+    currentMonthRevenue,
+    previousMonthRevenue,
     totalContent,
     totalViews,
-    todayHealth: todayHealth || undefined,
+    todayHealth: (todayHealthResponse.data as Health | null) || undefined,
     projectSummaries,
+    activeTimezone: timezone,
   };
 };
 

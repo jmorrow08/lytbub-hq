@@ -71,6 +71,10 @@ export interface Content {
 export interface Health {
   id: string;
   date: string;
+  day_key: string;
+  day_start_utc?: string | null;
+  timezone: string;
+  user_id?: string | null;
   energy?: number;
   sleep_hours?: number;
   workout: boolean;
@@ -84,10 +88,13 @@ export interface DashboardStats {
   completedTasks: number;
   totalRevenue: number;
   todayRevenue: number;
+  currentMonthRevenue?: number;
+  previousMonthRevenue?: number;
   totalContent: number;
   totalViews: number;
   todayHealth?: Health;
   projectSummaries?: DashboardProjectSummary[];
+  activeTimezone?: string;
 }
 
 export interface DashboardProjectSummary {
@@ -143,7 +150,11 @@ export interface UpdateContentData {
 }
 
 export interface CreateHealthData {
-  date: string;
+  date?: string;
+  day_key?: string;
+  day_start_utc?: string;
+  timezone?: string;
+  user_id?: string | null;
   energy?: number;
   sleep_hours?: number;
   workout: boolean;
@@ -155,6 +166,11 @@ export interface UpdateHealthData {
   sleep_hours?: number;
   workout?: boolean;
   notes?: string;
+  date?: string;
+  day_key?: string;
+  day_start_utc?: string;
+  timezone?: string;
+  user_id?: string | null;
 }
 
 export interface CreateProjectData {

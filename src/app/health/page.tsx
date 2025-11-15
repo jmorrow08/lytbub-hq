@@ -8,16 +8,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getHealth, createOrUpdateHealth, getTodayHealth, updateHealth, deleteHealth } from '@/lib/api';
 import type { Health, CreateHealthData, UpdateHealthData } from '@/types';
 import { Heart, Activity, Moon, Dumbbell, Calendar, Pencil, Trash } from 'lucide-react';
+import { formatInTimeZone, zonedTimeToUtc } from 'date-fns-tz';
 
-const dateFormatOptions: Intl.DateTimeFormatOptions = {
-  weekday: 'long',
-  year: 'numeric',
-  month: 'long',
-  day: 'numeric',
+const DEFAULT_TIMEZONE = 'America/New_York';
+const DATE_DISPLAY_FORMAT = 'EEEE, MMMM d, yyyy';
+
+const formatHealthEntryDate = (entry: Health) => {
+  const tz = entry.timezone || DEFAULT_TIMEZONE;
+  const reference =
+    entry.day_start_utc && !Number.isNaN(Date.parse(entry.day_start_utc))
+      ? new Date(entry.day_start_utc)
+      : zonedTimeToUtc(`${entry.day_key}T00:00:00`, tz);
+  return formatInTimeZone(reference, tz, DATE_DISPLAY_FORMAT);
 };
-
-const formatEntryDate = (date: string) =>
-  new Date(date).toLocaleDateString('en-US', dateFormatOptions);
 
 export default function HealthPage() {
   const [health, setHealth] = useState<Health[]>([]);
@@ -69,17 +72,7 @@ export default function HealthPage() {
       if (editingEntry) {
         await updateHealth(editingEntry.id, payload);
       } else {
-        // Use local date string to avoid UTC boundary issues
-        const now = new Date();
-        const dateString = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-          .toISOString()
-          .split('T')[0];
-
-        await createOrUpdateHealth({
-          date: dateString,
-          ...payload,
-          workout: formData.workout,
-        } as CreateHealthData);
+        await createOrUpdateHealth(payload as CreateHealthData);
       }
 
       setFormData({ energy: '', sleep_hours: '', workout: false, notes: '' });
@@ -107,7 +100,7 @@ export default function HealthPage() {
   };
 
   const handleDeleteEntry = async (entry: Health) => {
-    const confirmed = window.confirm(`Delete health log for ${formatEntryDate(entry.date)}?`);
+    const confirmed = window.confirm(`Delete health log for ${formatHealthEntryDate(entry)}?`);
     if (!confirmed) return;
 
     try {
@@ -139,7 +132,7 @@ export default function HealthPage() {
   const apostrophe = String.fromCharCode(39);
   const todayPossessive = `Today${apostrophe}s`;
   const formHeading = isEditing
-    ? `Edit ${editingEntry ? formatEntryDate(editingEntry.date) : todayPossessive} Health`
+    ? `Edit ${editingEntry ? formatHealthEntryDate(editingEntry) : todayPossessive} Health`
     : `Log ${todayPossessive} Health`;
 
   if (loading) {
@@ -383,7 +376,7 @@ export default function HealthPage() {
                     <div className="flex items-center space-x-3">
                       <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                       <div>
-                        <h4 className="font-medium">{formatEntryDate(entry.date)}</h4>
+                        <h4 className="font-medium">{formatHealthEntryDate(entry)}</h4>
                         <div className="flex items-center space-x-4 text-sm text-muted-foreground mt-1">
                           {entry.energy && (
                             <span className="flex items-center space-x-1">
