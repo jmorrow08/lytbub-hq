@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CheckSquare, DollarSign, Video, Heart, FolderKanban, CreditCard } from 'lucide-react';
+import { useAuth } from './auth/AuthProvider';
+import { Button } from './ui/button';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: CheckSquare },
@@ -16,6 +18,7 @@ const navigation = [
 
 export function Navigation() {
   const pathname = usePathname();
+  const { user, signOut } = useAuth();
 
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -45,6 +48,16 @@ export function Navigation() {
                 );
               })}
             </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            {user && (
+              <span className="hidden text-sm text-muted-foreground md:inline-flex">
+                {user.email}
+              </span>
+            )}
+            <Button variant="outline" size="sm" onClick={signOut}>
+              Sign out
+            </Button>
           </div>
         </div>
       </div>
