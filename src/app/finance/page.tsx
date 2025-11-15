@@ -76,19 +76,28 @@ export default function FinancePage() {
     setLinkResult(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke<CheckoutResponse>(
-        'stripe_checkout_create',
-        {
-          body: {
-            amountCents: Math.round(amountValue * 100),
-            description: formData.description.trim() || undefined,
-            projectId: formData.projectId || undefined,
-          },
-        }
-      );
+      const { data: session } = await supabase.auth.getSession();
+      const accessToken = session.session?.access_token;
+      if (!accessToken) {
+        throw new Error('You must be signed in to create a payment link.');
+      }
 
-      if (fnError || !data?.url || !data?.paymentId) {
-        throw new Error(fnError?.message || data?.error || 'Failed to create checkout link');
+      const res = await fetch('/api/finance/create-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          amountCents: Math.round(amountValue * 100),
+          description: formData.description.trim() || undefined,
+          projectId: formData.projectId || undefined,
+        }),
+      });
+
+      const data: CheckoutResponse = await res.json();
+      if (!res.ok || !data?.url || !data?.paymentId) {
+        throw new Error(data?.error || 'Failed to create checkout link');
       }
 
       setLinkResult({ url: data.url, paymentId: data.paymentId });
