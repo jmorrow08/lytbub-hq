@@ -510,11 +510,16 @@ export const deleteProjectChannel = async (id: string): Promise<void> => {
 // Finance API
 export const getClientProjects = async (): Promise<Project[]> => {
   const userId = await getCurrentUserId();
-  let query = supabase.from('projects').select('*').eq('type', 'client').order('name', { ascending: true });
-  if (userId) {
-    query = query.eq('created_by', userId);
+  if (!userId) {
+    throw new Error('Authentication is required to access client projects.');
   }
-  const { data, error } = await query;
+
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('type', 'client')
+    .eq('created_by', userId)
+    .order('name', { ascending: true });
 
   if (error) throw error;
   return (data as Project[]) || [];
