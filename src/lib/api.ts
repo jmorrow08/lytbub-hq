@@ -1,12 +1,12 @@
 import { supabase } from './supabaseClient';
 import {
   getActiveTimezone,
+  getDayKeyStartUtc,
   getMonthRangeUTC,
   getStartOfZonedDayUTC,
   getZonedDayKey,
 } from './timezone';
 import { addDays, addMonths } from 'date-fns';
-import { zonedTimeToUtc } from 'date-fns-tz';
 import type {
   Task,
   Revenue,
@@ -260,7 +260,7 @@ export const createOrUpdateHealth = async (health: CreateHealthData): Promise<He
 
   const referenceDate = health.day_start_utc
     ? new Date(health.day_start_utc)
-    : zonedTimeToUtc(`${dayKey}T00:00:00`, timezone);
+    : getDayKeyStartUtc(dayKey, timezone);
 
   const dayStartUtc = getStartOfZonedDayUTC(referenceDate, timezone).toISOString();
 

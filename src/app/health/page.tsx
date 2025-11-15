@@ -8,18 +8,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getHealth, createOrUpdateHealth, getTodayHealth, updateHealth, deleteHealth } from '@/lib/api';
 import type { Health, CreateHealthData, UpdateHealthData } from '@/types';
 import { Heart, Activity, Moon, Dumbbell, Calendar, Pencil, Trash } from 'lucide-react';
-import { formatInTimeZone, zonedTimeToUtc } from 'date-fns-tz';
+import { DEFAULT_TIMEZONE, formatInTimezone, getDayKeyStartUtc } from '@/lib/timezone';
 
-const DEFAULT_TIMEZONE = 'America/New_York';
-const DATE_DISPLAY_FORMAT = 'EEEE, MMMM d, yyyy';
+const DATE_DISPLAY_FORMAT: Intl.DateTimeFormatOptions = {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+};
 
 const formatHealthEntryDate = (entry: Health) => {
   const tz = entry.timezone || DEFAULT_TIMEZONE;
   const reference =
     entry.day_start_utc && !Number.isNaN(Date.parse(entry.day_start_utc))
       ? new Date(entry.day_start_utc)
-      : zonedTimeToUtc(`${entry.day_key}T00:00:00`, tz);
-  return formatInTimeZone(reference, tz, DATE_DISPLAY_FORMAT);
+      : getDayKeyStartUtc(entry.day_key, tz);
+  return formatInTimezone(reference, tz, DATE_DISPLAY_FORMAT);
 };
 
 export default function HealthPage() {
