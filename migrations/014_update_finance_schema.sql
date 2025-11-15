@@ -29,7 +29,7 @@ BEGIN
     SET created_by = c.created_by
     FROM public.clients c
     WHERE p.client_id = c.id
-      AND p.created_by IS NULL;
+      AND p.created_by IS DISTINCT FROM c.created_by;
 
     SELECT COUNT(*) INTO unowned_payments
     FROM public.payments
@@ -52,13 +52,15 @@ BEGIN
     IF orphaned_payments > 0 THEN
       RAISE EXCEPTION 'Cannot drop clients until % payment rows referencing deleted clients are reassigned.', orphaned_payments;
     END IF;
+
+    -- Remove legacy clients reference from payments once data integrity checks succeed
+    EXECUTE $ddl$
+      ALTER TABLE public.payments
+        DROP CONSTRAINT IF EXISTS payments_client_id_fkey,
+        DROP COLUMN IF EXISTS client_id
+    $ddl$;
   END IF;
 END $$;
-
--- Remove legacy clients reference from payments once data is copied
-ALTER TABLE public.payments
-  DROP CONSTRAINT IF EXISTS payments_client_id_fkey,
-  DROP COLUMN IF EXISTS client_id;
 
 -- Ensure RLS policies exist after altering the table
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
