@@ -511,7 +511,7 @@ export const deleteProjectChannel = async (id: string): Promise<void> => {
 export const getClientProjects = async (): Promise<Project[]> => {
   const userId = await getCurrentUserId();
   if (!userId) {
-    throw new Error('Authentication is required to access client projects.');
+    return [];
   }
 
   const { data, error } = await supabase

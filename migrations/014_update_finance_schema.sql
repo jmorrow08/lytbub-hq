@@ -9,6 +9,7 @@ ALTER TABLE public.payments
 DO $$
 DECLARE
   orphaned_payments integer;
+  unowned_payments integer;
 BEGIN
   IF EXISTS (
     SELECT 1
@@ -23,12 +24,20 @@ BEGIN
     WHERE table_schema = 'public'
       AND table_name = 'clients'
   ) THEN
-    -- Align payment ownership with its legacy client record
+    -- Align payment ownership with its legacy client record where the owner was missing
     UPDATE public.payments p
     SET created_by = c.created_by
     FROM public.clients c
     WHERE p.client_id = c.id
-      AND p.created_by IS DISTINCT FROM c.created_by;
+      AND p.created_by IS NULL;
+
+    SELECT COUNT(*) INTO unowned_payments
+    FROM public.payments
+    WHERE created_by IS NULL;
+
+    IF unowned_payments > 0 THEN
+      RAISE EXCEPTION 'Cannot enable payments RLS because % payment rows still have NULL created_by values. Backfill them before rerunning migration.', unowned_payments;
+    END IF;
 
     -- If any payments reference a missing client, fail so data can be repaired first
     SELECT COUNT(*) INTO orphaned_payments
