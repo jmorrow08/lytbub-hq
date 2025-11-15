@@ -5,17 +5,35 @@ type CreateCheckoutPayload = {
   amountCents?: number;
   currency?: string;
   description?: string;
-  clientId?: string;
+  projectId?: string;
   customerEmail?: string;
+};
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 const respond = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+    },
   });
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      },
+    });
+  }
+
   if (req.method !== 'POST') {
     return respond(405, { error: 'Method not allowed' });
   }
@@ -105,22 +123,22 @@ Deno.serve(async (req) => {
     return respond(401, { error: 'Unauthorized' });
   }
 
-  const linkedClientId: string | null = payload.clientId || null;
-  if (linkedClientId) {
-    const { data: clientRecord, error: clientError } = await supabaseClient
-      .from('clients')
+  const linkedProjectId: string | null = payload.projectId || null;
+  if (linkedProjectId) {
+    const { data: projectRecord, error: projectError } = await supabaseClient
+      .from('projects')
       .select('id')
-      .eq('id', linkedClientId)
-      .eq('created_by', user.id)
+      .eq('id', linkedProjectId)
+      .eq('type', 'client')
       .maybeSingle();
 
-    if (clientError) {
-      console.error('Failed to validate client ownership', clientError);
-      return respond(500, { error: 'Unable to validate client' });
+    if (projectError) {
+      console.error('Failed to validate client project', projectError);
+      return respond(500, { error: 'Unable to validate client project' });
     }
 
-    if (!clientRecord) {
-      return respond(400, { error: 'Client not found' });
+    if (!projectRecord) {
+      return respond(400, { error: 'Client project not found' });
     }
   }
 
@@ -128,7 +146,7 @@ Deno.serve(async (req) => {
     .from('payments')
     .insert({
       created_by: user.id,
-      client_id: linkedClientId,
+      project_id: linkedProjectId,
       amount_cents: amountCents,
       currency,
       description,

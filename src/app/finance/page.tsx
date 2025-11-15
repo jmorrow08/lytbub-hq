@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
-import { getClients, getPayments } from '@/lib/api';
-import type { Client, Payment } from '@/types';
+import { getClientProjects, getPayments } from '@/lib/api';
+import type { Payment, Project } from '@/types';
 import { Loader2, Copy, ExternalLink } from 'lucide-react';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -28,7 +28,7 @@ type CheckoutResponse = {
 };
 
 export default function FinancePage() {
-  const [clients, setClients] = useState<Client[]>([]);
+  const [clientProjects, setClientProjects] = useState<Project[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -37,18 +37,18 @@ export default function FinancePage() {
   const [formData, setFormData] = useState({
     amount: '',
     description: '',
-    clientId: '',
+    projectId: '',
   });
 
-  const hasClients = useMemo(() => clients.length > 0, [clients]);
+  const hasClients = useMemo(() => clientProjects.length > 0, [clientProjects]);
 
   const loadFinanceData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [paymentsData, clientsData] = await Promise.all([getPayments(), getClients()]);
+      const [paymentsData, clientData] = await Promise.all([getPayments(), getClientProjects()]);
       setPayments(paymentsData);
-      setClients(clientsData);
+      setClientProjects(clientData);
     } catch (err) {
       console.error(err);
       setError('Unable to load finance data. Please ensure you are signed in.');
@@ -81,7 +81,7 @@ export default function FinancePage() {
           body: {
             amountCents: Math.round(amountValue * 100),
             description: formData.description.trim() || undefined,
-            clientId: formData.clientId || undefined,
+            projectId: formData.projectId || undefined,
           },
         }
       );
@@ -91,7 +91,7 @@ export default function FinancePage() {
       }
 
       setLinkResult({ url: data.url, paymentId: data.paymentId });
-      setFormData({ amount: '', description: '', clientId: '' });
+      setFormData({ amount: '', description: '', projectId: '' });
       loadFinanceData();
     } catch (err) {
       console.error(err);
@@ -177,25 +177,25 @@ export default function FinancePage() {
                 />
               </div>
               <div>
-                <label htmlFor="clientId" className="block text-sm font-medium mb-1">
-                  Client (optional)
+                <label htmlFor="projectId" className="block text-sm font-medium mb-1">
+                  Client Project (optional)
                 </label>
                 <select
-                  id="clientId"
+                  id="projectId"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={formData.clientId}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, clientId: e.target.value }))}
+                  value={formData.projectId}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, projectId: e.target.value }))}
                 >
                   <option value="">No client</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
+                  {clientProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
                     </option>
                   ))}
                 </select>
                 {!hasClients && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    No clients yet. Add them via Supabase or future client management UI.
+                    No client projects yet. Add one via the Projects tab by selecting the Client type.
                   </p>
                 )}
               </div>
@@ -254,7 +254,7 @@ export default function FinancePage() {
               <thead className="text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="py-2 text-left">Created</th>
-                  <th className="py-2 text-left">Client</th>
+                  <th className="py-2 text-left">Client Project</th>
                   <th className="py-2 text-left">Description</th>
                   <th className="py-2 text-left">Amount</th>
                   <th className="py-2 text-left">Type</th>
@@ -266,7 +266,7 @@ export default function FinancePage() {
                 {payments.map((payment) => (
                   <tr key={payment.id} className="border-b border-border/40">
                     <td className="py-3">{dateFormatter.format(new Date(payment.created_at))}</td>
-                    <td className="py-3">{payment.client?.name || '—'}</td>
+                    <td className="py-3">{payment.project?.name || '—'}</td>
                     <td className="py-3">{payment.description || '—'}</td>
                     <td className="py-3 font-medium">
                       {currencyFormatter.format(payment.amount_cents / 100)}

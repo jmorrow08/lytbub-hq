@@ -30,9 +30,7 @@ import type {
   ProjectStats,
   DashboardProjectSummary,
   ProjectWithChannels,
-  Client,
   Payment,
-  CreateClientData,
 } from '@/types';
 
 type TaskQueryOptions = {
@@ -501,41 +499,21 @@ export const deleteProjectChannel = async (id: string): Promise<void> => {
 };
 
 // Finance API
-export const getClients = async (): Promise<Client[]> => {
+export const getClientProjects = async (): Promise<Project[]> => {
   const { data, error } = await supabase
-    .from('clients')
+    .from('projects')
     .select('*')
-    .order('created_at', { ascending: false });
+    .eq('type', 'client')
+    .order('name', { ascending: true });
 
   if (error) throw error;
-  return (data as Client[]) || [];
-};
-
-export const createClient = async (payload: CreateClientData): Promise<Client> => {
-  const userId = await getCurrentUserId();
-  if (!userId) {
-    throw new Error('You must be signed in to create clients.');
-  }
-
-  const { data, error } = await supabase
-    .from('clients')
-    .insert({
-      name: payload.name.trim(),
-      email: payload.email?.trim() || null,
-      phone: payload.phone?.trim() || null,
-      created_by: userId,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as Client;
+  return (data as Project[]) || [];
 };
 
 export const getPayments = async (): Promise<Payment[]> => {
   const { data, error } = await supabase
     .from('payments')
-    .select('*, client:clients(*)')
+    .select('*, project:projects(*)')
     .order('created_at', { ascending: false })
     .limit(25);
 

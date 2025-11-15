@@ -36,20 +36,11 @@ export interface ProjectStats {
   last_published_at?: string | null;
 }
 
-export interface Client {
-  id: string;
-  name: string;
-  email?: string | null;
-  phone?: string | null;
-  created_by: string;
-  created_at: string;
-}
-
 export interface Payment {
   id: string;
   created_by: string;
-  client_id?: string | null;
-  client?: Client | null;
+  project_id?: string | null;
+  project?: Project | null;
   amount_cents: number;
   currency: string;
   description?: string | null;
@@ -221,9 +212,3 @@ export interface CreateProjectChannelData {
 }
 
 export type UpdateProjectChannelData = Partial<CreateProjectChannelData>;
-
-export interface CreateClientData {
-  name: string;
-  email?: string;
-  phone?: string;
-}
