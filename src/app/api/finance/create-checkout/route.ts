@@ -40,8 +40,27 @@ export async function POST(req: Request) {
     });
 
     if (error) {
-      console.error('[api/finance/create-checkout] edge function error', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      let status = 400;
+      let edgeMessage = error.message;
+
+      const rawBody = error?.context?.body;
+      if (typeof error?.context?.status === 'number') {
+        status = error.context.status;
+      }
+      if (rawBody) {
+        try {
+          const parsed = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;
+          if (parsed?.error) edgeMessage = parsed.error;
+        } catch {
+          // keep default edgeMessage
+        }
+      }
+
+      console.error('[api/finance/create-checkout] edge function error', edgeMessage, {
+        status,
+        context: error?.context,
+      });
+      return NextResponse.json({ error: edgeMessage }, { status });
     }
 
     return NextResponse.json(data ?? {});
