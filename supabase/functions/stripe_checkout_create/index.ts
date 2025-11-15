@@ -129,6 +129,7 @@ Deno.serve(async (req) => {
       .from('projects')
       .select('id')
       .eq('id', linkedProjectId)
+      .eq('created_by', user.id)
       .eq('type', 'client')
       .maybeSingle();
 
