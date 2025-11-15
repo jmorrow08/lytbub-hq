@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { getClientProjects, getPayments } from '@/lib/api';
 import type { Payment, Project } from '@/types';
 import { Loader2, Copy, ExternalLink } from 'lucide-react';
+import { runFinanceBackfills } from '@/lib/maintenance';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -58,7 +59,7 @@ export default function FinancePage() {
   };
 
   useEffect(() => {
-    loadFinanceData();
+    runFinanceBackfills().finally(loadFinanceData);
   }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {

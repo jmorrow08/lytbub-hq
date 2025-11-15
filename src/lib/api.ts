@@ -518,7 +518,8 @@ export const getClientProjects = async (): Promise<Project[]> => {
     .from('projects')
     .select('*')
     .eq('type', 'client')
-    .eq('created_by', userId)
+    // Temporary fallback: include ownerless client projects until backfill completes
+    .or(`created_by.eq.${userId},created_by.is.null`)
     .order('name', { ascending: true });
 
   if (error) throw error;

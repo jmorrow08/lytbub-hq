@@ -9,26 +9,31 @@ type CreateCheckoutPayload = {
   customerEmail?: string;
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const buildCors = (req: Request) => {
+  const origin = req.headers.get('origin') ?? '*';
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Vary': 'Origin',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  } as const;
 };
 
-const respond = (status: number, body: Record<string, unknown>) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    },
-  });
-
 Deno.serve(async (req) => {
+  const cors = buildCors(req);
+  const respond = (status: number, body: Record<string, unknown>) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        ...cors,
+        'Content-Type': 'application/json',
+      },
+    });
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', {
       status: 200,
       headers: {
-        ...corsHeaders,
+        ...cors,
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
       },
     });
