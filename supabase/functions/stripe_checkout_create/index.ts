@@ -105,11 +105,30 @@ Deno.serve(async (req) => {
     return respond(401, { error: 'Unauthorized' });
   }
 
+  const linkedClientId: string | null = payload.clientId || null;
+  if (linkedClientId) {
+    const { data: clientRecord, error: clientError } = await supabaseClient
+      .from('clients')
+      .select('id')
+      .eq('id', linkedClientId)
+      .eq('created_by', user.id)
+      .maybeSingle();
+
+    if (clientError) {
+      console.error('Failed to validate client ownership', clientError);
+      return respond(500, { error: 'Unable to validate client' });
+    }
+
+    if (!clientRecord) {
+      return respond(400, { error: 'Client not found' });
+    }
+  }
+
   const { data: paymentRow, error: insertError } = await supabaseClient
     .from('payments')
     .insert({
       created_by: user.id,
-      client_id: payload.clientId || null,
+      client_id: linkedClientId,
       amount_cents: amountCents,
       currency,
       description,

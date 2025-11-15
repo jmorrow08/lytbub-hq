@@ -512,12 +512,18 @@ export const getClients = async (): Promise<Client[]> => {
 };
 
 export const createClient = async (payload: CreateClientData): Promise<Client> => {
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to create clients.');
+  }
+
   const { data, error } = await supabase
     .from('clients')
     .insert({
-      name: payload.name,
-      email: payload.email || null,
-      phone: payload.phone || null,
+      name: payload.name.trim(),
+      email: payload.email?.trim() || null,
+      phone: payload.phone?.trim() || null,
+      created_by: userId,
     })
     .select()
     .single();
