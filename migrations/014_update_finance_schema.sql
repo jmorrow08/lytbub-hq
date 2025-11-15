@@ -8,7 +8,7 @@ ALTER TABLE public.payments
 -- Ensure existing rows are owned so RLS does not lock them out
 DO $$
 DECLARE
-  unmatched_count integer;
+  orphaned_payments integer;
 BEGIN
   IF EXISTS (
     SELECT 1
@@ -23,19 +23,26 @@ BEGIN
     WHERE table_schema = 'public'
       AND table_name = 'clients'
   ) THEN
+    -- Align payment ownership with its legacy client record
     UPDATE public.payments p
     SET created_by = c.created_by
     FROM public.clients c
-    WHERE p.created_by IS NULL
-      AND p.client_id = c.id;
-  END IF;
+    WHERE p.client_id = c.id
+      AND p.created_by IS DISTINCT FROM c.created_by;
 
-  SELECT COUNT(*) INTO unmatched_count
-  FROM public.payments
-  WHERE created_by IS NULL;
+    -- If any payments reference a missing client, fail so data can be repaired first
+    SELECT COUNT(*) INTO orphaned_payments
+    FROM public.payments p
+    WHERE p.client_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.clients c
+        WHERE c.id = p.client_id
+      );
 
-  IF unmatched_count > 0 THEN
-    RAISE EXCEPTION 'Cannot enable payments RLS because % payment rows still have NULL created_by values. Backfill them before rerunning migration.', unmatched_count;
+    IF orphaned_payments > 0 THEN
+      RAISE EXCEPTION 'Cannot drop clients until % payment rows referencing deleted clients are reassigned.', orphaned_payments;
+    END IF;
   END IF;
 END $$;
 
