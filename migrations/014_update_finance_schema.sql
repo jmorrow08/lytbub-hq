@@ -29,7 +29,7 @@ BEGIN
     SET created_by = c.created_by
     FROM public.clients c
     WHERE p.client_id = c.id
-      AND p.created_by IS DISTINCT FROM c.created_by;
+      AND p.created_by IS NULL;
 
     SELECT COUNT(*) INTO unowned_payments
     FROM public.payments
