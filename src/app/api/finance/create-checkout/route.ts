@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+type CheckoutInvokePayload = {
+  amountCents: number;
+  description?: string;
+  projectId?: string;
+  customerEmail?: string;
+};
+
 export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
         { error: 'Supabase client is not configured on the server.' },
@@ -12,10 +20,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const authHeader = req.headers.get('authorization') || '';
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const authHeader = req.headers.get('authorization') ?? '';
+    if (!authHeader.toLowerCase().startsWith('bearer ')) {
+      return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
+    }
 
     const payload = await req.json();
     const amountCents = Number(payload?.amountCents);
@@ -26,16 +34,26 @@ export async function POST(req: Request) {
       );
     }
 
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    const invokePayload: CheckoutInvokePayload = {
+      amountCents,
+      description: payload?.description || undefined,
+      projectId: payload?.projectId || undefined,
+    };
+    if (payload?.customerEmail) {
+      invokePayload.customerEmail = payload.customerEmail;
+    }
+
     console.log('[api/finance/create-checkout] invoking edge function', {
       amountCents,
-      projectId: payload?.projectId || null,
+      projectId: invokePayload.projectId ?? null,
     });
 
     const { data, error } = await supabase.functions.invoke('stripe_checkout_create', {
-      body: {
-        amountCents,
-        description: payload?.description || undefined,
-        projectId: payload?.projectId || undefined,
+      body: invokePayload,
+      headers: {
+        Authorization: authHeader,
       },
     });
 
@@ -71,5 +89,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
 
