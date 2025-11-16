@@ -46,7 +46,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const description = payload?.description?.trim() || 'Lytbub HQ Payment';
+    const rawDescription = payload?.description;
+    const description =
+      typeof rawDescription === 'string' && rawDescription.trim()
+        ? rawDescription.trim()
+        : 'Lytbub HQ Payment';
     const currency = 'usd';
     const projectId = payload?.projectId || null;
 
