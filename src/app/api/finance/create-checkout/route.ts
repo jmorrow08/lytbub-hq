@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
+const STRIPE_FUNCTION_NAME = 'stripe_checkout_create';
 
 type CheckoutPayload = {
   amountCents: number;
@@ -16,6 +17,10 @@ export async function POST(req: Request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    const supabaseFunctionsOrigin =
+      process.env.SUPABASE_FUNCTIONS_URL ||
+      process.env.NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL ||
+      deriveSupabaseFunctionsOrigin(supabaseUrl);
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
@@ -24,16 +29,8 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!stripeSecretKey) {
-      console.error('[api/finance/create-checkout] Missing STRIPE_SECRET_KEY env var');
-      return NextResponse.json(
-        { error: 'Stripe is not configured. Please contact support.' },
-        { status: 500 }
-      );
-    }
-
-    const authHeader = req.headers.get('authorization') ?? '';
-    if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
       return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
     }
 
@@ -53,6 +50,32 @@ export async function POST(req: Request) {
         : 'Lytbub HQ Payment';
     const currency = 'usd';
     const projectId = payload?.projectId || null;
+
+    if (!stripeSecretKey) {
+      if (!supabaseFunctionsOrigin) {
+        console.error(
+          '[api/finance/create-checkout] Missing both STRIPE secret and Supabase functions origin'
+        );
+        return NextResponse.json(
+          {
+            error:
+              'Stripe is not configured on this deployment. Please set STRIPE_SECRET_KEY or SUPABASE_FUNCTIONS_URL.',
+          },
+          { status: 500 }
+        );
+      }
+
+      return forwardToSupabaseFunction({
+        authHeader,
+        supabaseFunctionsOrigin,
+        body: {
+          amountCents: Math.round(amountCents),
+          description,
+          projectId: projectId ?? undefined,
+          customerEmail: payload?.customerEmail,
+        },
+      });
+    }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
@@ -161,6 +184,59 @@ export async function POST(req: Request) {
       err instanceof Error ? err.message : 'Unexpected server error while creating checkout';
     console.error('[api/finance/create-checkout] unexpected server error', err);
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+function deriveSupabaseFunctionsOrigin(supabaseUrl?: string | null): string | null {
+  if (!supabaseUrl) return null;
+  try {
+    const parsed = new URL(supabaseUrl);
+    if (!parsed.host.includes('.supabase.')) return null;
+    const functionHost = parsed.host.replace('.supabase.', '.functions.supabase.');
+    return `${parsed.protocol}//${functionHost}`;
+  } catch (error) {
+    console.error('[api/finance/create-checkout] Unable to derive Supabase functions origin', error);
+    return null;
+  }
+}
+
+async function forwardToSupabaseFunction({
+  authHeader,
+  supabaseFunctionsOrigin,
+  body,
+}: {
+  authHeader: string;
+  supabaseFunctionsOrigin: string;
+  body: CheckoutPayload;
+}) {
+  const endpoint = `${supabaseFunctionsOrigin.replace(/\/$/, '')}/${STRIPE_FUNCTION_NAME}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const text = await response.text();
+    let data: Record<string, unknown>;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (error) {
+      console.error('[api/finance/create-checkout] Invalid JSON from Supabase function', error, text);
+      data = { error: 'Payment service returned invalid response.' };
+    }
+
+    return NextResponse.json(data, { status: response.status });
+  } catch (error) {
+    console.error('[api/finance/create-checkout] Supabase function proxy failed', error);
+    return NextResponse.json(
+      { error: 'Payment service is unavailable. Please try again later.' },
+      { status: 502 }
+    );
   }
 }
 
