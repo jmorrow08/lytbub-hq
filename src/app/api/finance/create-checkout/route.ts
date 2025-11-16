@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
-type CheckoutInvokePayload = {
+const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
+
+type CheckoutPayload = {
   amountCents: number;
   description?: string;
   projectId?: string;
@@ -12,10 +15,19 @@ export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
         { error: 'Supabase client is not configured on the server.' },
+        { status: 500 }
+      );
+    }
+
+    if (!stripeSecretKey) {
+      console.error('[api/finance/create-checkout] Missing STRIPE_SECRET_KEY env var');
+      return NextResponse.json(
+        { error: 'Stripe is not configured. Please contact support.' },
         { status: 500 }
       );
     }
@@ -25,7 +37,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
     }
 
-    const payload = await req.json();
+    const payload = (await req.json()) as CheckoutPayload;
     const amountCents = Number(payload?.amountCents);
     if (!Number.isFinite(amountCents) || amountCents <= 0) {
       return NextResponse.json(
@@ -34,54 +46,112 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const description = payload?.description?.trim() || 'Lytbub HQ Payment';
+    const currency = 'usd';
+    const projectId = payload?.projectId || null;
 
-    const invokePayload: CheckoutInvokePayload = {
-      amountCents,
-      description: payload?.description || undefined,
-      projectId: payload?.projectId || undefined,
-    };
-    if (payload?.customerEmail) {
-      invokePayload.customerEmail = payload.customerEmail;
-    }
-
-    console.log('[api/finance/create-checkout] invoking edge function', {
-      amountCents,
-      projectId: invokePayload.projectId ?? null,
-    });
-
-    const { data, error } = await supabase.functions.invoke('stripe_checkout_create', {
-      body: invokePayload,
-      headers: {
-        Authorization: authHeader,
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: { Authorization: authHeader },
       },
     });
 
-    if (error) {
-      let status = 400;
-      let edgeMessage = error.message;
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-      const rawBody = error?.context?.body;
-      if (typeof error?.context?.status === 'number') {
-        status = error.context.status;
-      }
-      if (rawBody) {
-        try {
-          const parsed = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;
-          if (parsed?.error) edgeMessage = parsed.error;
-        } catch {
-          // keep default edgeMessage
-        }
-      }
-
-      console.error('[api/finance/create-checkout] edge function error', edgeMessage, {
-        status,
-        context: error?.context,
-      });
-      return NextResponse.json({ error: edgeMessage }, { status });
+    if (userError || !user) {
+      console.error('[api/finance/create-checkout] Unable to resolve Supabase user', userError);
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    return NextResponse.json(data ?? {});
+    if (projectId) {
+      const { data: projectRecord, error: projectError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('id', projectId)
+        .eq('created_by', user.id)
+        .eq('type', 'client')
+        .maybeSingle();
+
+      if (projectError) {
+        console.error('[api/finance/create-checkout] Failed to validate client project', projectError);
+        return NextResponse.json(
+          { error: 'Unable to validate the selected client project.' },
+          { status: 500 }
+        );
+      }
+
+      if (!projectRecord) {
+        return NextResponse.json({ error: 'Client project not found.' }, { status: 400 });
+      }
+    }
+
+    const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
+    const siteUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.SITE_URL ||
+      'https://lytbub-hq.vercel.app';
+
+    let session: Stripe.Response<Stripe.Checkout.Session>;
+    try {
+      session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        line_items: [
+          {
+            price_data: {
+              currency,
+              product_data: { name: description },
+              unit_amount: Math.round(amountCents),
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${siteUrl}/finance?status=success`,
+        cancel_url: `${siteUrl}/finance?status=cancelled`,
+        customer_email: payload?.customerEmail || undefined,
+      });
+    } catch (error) {
+      console.error('[api/finance/create-checkout] Stripe session creation failed', error);
+      return NextResponse.json(
+        { error: 'Failed to create the Stripe checkout session.' },
+        { status: 500 }
+      );
+    }
+
+    if (!session?.url) {
+      console.error('[api/finance/create-checkout] Stripe did not return a checkout URL', session);
+      return NextResponse.json(
+        { error: 'Stripe did not return a checkout URL.' },
+        { status: 502 }
+      );
+    }
+
+    const { data: paymentRow, error: insertError } = await supabase
+      .from('payments')
+      .insert({
+        created_by: user.id,
+        project_id: projectId,
+        amount_cents: Math.round(amountCents),
+        currency,
+        description,
+        link_type: 'checkout_session',
+        stripe_id: session.id,
+        url: session.url,
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      console.error('[api/finance/create-checkout] Failed to persist payment row', insertError);
+      return NextResponse.json(
+        { error: 'Failed to log the payment in Supabase.' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ url: session.url, paymentId: paymentRow.id });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Unexpected server error while creating checkout';

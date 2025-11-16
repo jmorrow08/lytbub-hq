@@ -57,6 +57,9 @@ Create a `.env.local` file in the root directory:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url_here
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+STRIPE_SECRET_KEY=sk_test_xxx_from_dashboard
+# Used to build the Stripe success/cancel URLs. Defaults to the production URL if omitted.
+SITE_URL=http://localhost:3000
 ```
 
 ### 5. Run Development Server
