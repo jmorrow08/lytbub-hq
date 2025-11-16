@@ -51,32 +51,6 @@ export async function POST(req: Request) {
     const currency = 'usd';
     const projectId = payload?.projectId || null;
 
-    if (!stripeSecretKey) {
-      if (!supabaseFunctionsOrigin) {
-        console.error(
-          '[api/finance/create-checkout] Missing both STRIPE secret and Supabase functions origin'
-        );
-        return NextResponse.json(
-          {
-            error:
-              'Stripe is not configured on this deployment. Please set STRIPE_SECRET_KEY or SUPABASE_FUNCTIONS_URL.',
-          },
-          { status: 500 }
-        );
-      }
-
-      return forwardToSupabaseFunction({
-        authHeader,
-        supabaseFunctionsOrigin,
-        body: {
-          amountCents: Math.round(amountCents),
-          description,
-          projectId: projectId ?? undefined,
-          customerEmail: payload?.customerEmail,
-        },
-      });
-    }
-
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: { Authorization: authHeader },
@@ -113,6 +87,32 @@ export async function POST(req: Request) {
       if (!projectRecord) {
         return NextResponse.json({ error: 'Client project not found.' }, { status: 400 });
       }
+    }
+
+    if (!stripeSecretKey) {
+      if (!supabaseFunctionsOrigin) {
+        console.error(
+          '[api/finance/create-checkout] Missing both STRIPE secret and Supabase functions origin'
+        );
+        return NextResponse.json(
+          {
+            error:
+              'Stripe is not configured on this deployment. Please set STRIPE_SECRET_KEY or SUPABASE_FUNCTIONS_URL.',
+          },
+          { status: 500 }
+        );
+      }
+
+      return forwardToSupabaseFunction({
+        authHeader,
+        supabaseFunctionsOrigin,
+        body: {
+          amountCents: Math.round(amountCents),
+          description,
+          projectId: projectId ?? undefined,
+          customerEmail: payload?.customerEmail,
+        },
+      });
     }
 
     const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
