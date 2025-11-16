@@ -222,15 +222,24 @@ async function forwardToSupabaseFunction({
     });
 
     const text = await response.text();
-    let data: Record<string, unknown>;
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch (error) {
-      console.error('[api/finance/create-checkout] Invalid JSON from Supabase function', error, text);
-      data = { error: 'Payment service returned invalid response.' };
+    if (text) {
+      try {
+        const data = JSON.parse(text) as Record<string, unknown>;
+        return NextResponse.json(data, { status: response.status });
+      } catch (error) {
+        console.error(
+          '[api/finance/create-checkout] Invalid JSON from Supabase function',
+          error,
+          text
+        );
+        return NextResponse.json(
+          { error: 'Payment service returned invalid response.' },
+          { status: 502 }
+        );
+      }
     }
 
-    return NextResponse.json(data, { status: response.status });
+    return NextResponse.json({}, { status: response.status });
   } catch (error) {
     console.error('[api/finance/create-checkout] Supabase function proxy failed', error);
     return NextResponse.json(
