@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { getClientProjects, getPayments } from '@/lib/api';
+import { FunctionsHttpError, FunctionsRelayError, FunctionsFetchError } from '@supabase/supabase-js';
 import type { Payment, Project } from '@/types';
 import { Loader2, Copy, ExternalLink } from 'lucide-react';
 import { runFinanceBackfills } from '@/lib/maintenance';
@@ -38,7 +39,23 @@ async function callSupabaseCheckoutFunction(
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (error) {
-      return { error: error.message || 'Payment service returned an error.' };
+      // Extract detailed message for HTTP errors returned by the Edge Function
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const details = await error.context.json();
+          const message =
+            (typeof details === 'string' ? details : details?.error || details?.message) ||
+            'Payment service returned an error.';
+          return { error: message };
+        } catch {
+          return { error: 'Payment service returned an error.' };
+        }
+      }
+      // Other error types (relay/fetch) surface a meaningful .message
+      if (error instanceof FunctionsRelayError || error instanceof FunctionsFetchError) {
+        return { error: error.message || 'Payment service returned an error.' };
+      }
+      return { error: (error as Error)?.message || 'Payment service returned an error.' };
     }
     return (data as unknown as CheckoutResponse) || {};
   } catch {
