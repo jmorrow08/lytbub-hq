@@ -143,8 +143,9 @@ Deno.serve(async (req) => {
     Deno.env.get('SITE_URL') ||
     'https://lytbub-hq.vercel.app';
 
-  const successUrl = `${siteUrl}/payment/success`;
-  const cancelUrl = `${siteUrl}/payment/cancel`;
+  const paymentId = crypto.randomUUID();
+  const successUrl = `${siteUrl}/payment/success?paymentId=${paymentId}`;
+  const cancelUrl = `${siteUrl}/payment/cancel?paymentId=${paymentId}`;
 
   let session;
   try {
@@ -187,6 +188,7 @@ Deno.serve(async (req) => {
       link_type: 'checkout_session',
       stripe_id: session.id,
       url: session.url,
+      id: paymentId,
     })
     .select('id')
     .single();

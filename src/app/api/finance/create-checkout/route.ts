@@ -128,6 +128,7 @@ export async function POST(req: Request) {
     }
 
     const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
+    const paymentId = crypto.randomUUID();
     const siteUrl =
       process.env.SITE_URL ||
       process.env.NEXT_PUBLIC_SITE_URL ||
@@ -147,8 +148,8 @@ export async function POST(req: Request) {
             quantity: 1,
           },
         ],
-        success_url: `${siteUrl}/payment/success`,
-        cancel_url: `${siteUrl}/payment/cancel`,
+        success_url: `${siteUrl}/payment/success?paymentId=${paymentId}`,
+        cancel_url: `${siteUrl}/payment/cancel?paymentId=${paymentId}`,
         customer_email: payload?.customerEmail || undefined,
         metadata: clientMetadata as Stripe.MetadataParam,
       });
@@ -171,6 +172,7 @@ export async function POST(req: Request) {
     const { data: paymentRow, error: insertError } = await supabase
       .from('payments')
       .insert({
+        id: paymentId,
         created_by: user.id,
         project_id: projectId,
         amount_cents: Math.round(amountCents),
