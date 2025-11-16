@@ -28,6 +28,59 @@ type CheckoutResponse = {
   error?: string;
 };
 
+// Derive the Supabase Functions origin from public env at build time
+function deriveSupabaseFunctionsOrigin(): string | null {
+  const explicit =
+    process.env.NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_EDGE_FUNCTIONS_URL;
+  if (explicit) return explicit.replace(/\/$/, '');
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  try {
+    if (!supabaseUrl) return null;
+    const u = new URL(supabaseUrl);
+    if (!u.host.includes('.supabase.')) return null;
+    const functionsHost = u.host.replace('.supabase.', '.functions.supabase.');
+    return `${u.protocol}//${functionsHost}`;
+  } catch {
+    return null;
+  }
+}
+
+async function callSupabaseCheckoutFunction(
+  accessToken: string,
+  payload: { amountCents: number; description?: string; projectId?: string }
+): Promise<CheckoutResponse> {
+  const origin = deriveSupabaseFunctionsOrigin();
+  if (!origin) {
+    return { error: 'Payment service is not available. Missing Supabase Functions URL.' };
+  }
+  const endpoint = `${origin}/stripe_checkout_create`;
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    return { error: 'Unable to reach payment service. Please try again later.' };
+  }
+
+  const text = await res.text();
+  try {
+    const json = text ? (JSON.parse(text) as CheckoutResponse) : {};
+    if (!res.ok) {
+      return { error: json?.error || 'Payment service returned an error.' };
+    }
+    return json;
+  } catch {
+    return { error: 'Payment service returned invalid response.' };
+  }
+}
+
 export default function FinancePage() {
   const [clientProjects, setClientProjects] = useState<Project[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -95,8 +148,22 @@ export default function FinancePage() {
         }),
       });
 
-      const data: CheckoutResponse = await res.json();
-      if (!res.ok || !data?.url || !data?.paymentId) {
+      let data: CheckoutResponse;
+      if (res.status === 404) {
+        // Fallback: call Supabase Edge Function directly when API route is unavailable
+        data = await callSupabaseCheckoutFunction(accessToken, {
+          amountCents: Math.round(amountValue * 100),
+          description: formData.description.trim() || undefined,
+          projectId: formData.projectId || undefined,
+        });
+      } else {
+        data = (await res.json()) as CheckoutResponse;
+      }
+
+      if (!res.ok && res.status !== 404) {
+        throw new Error(data?.error || 'Failed to create checkout link');
+      }
+      if (!data?.url || !data?.paymentId) {
         throw new Error(data?.error || 'Failed to create checkout link');
       }
 
