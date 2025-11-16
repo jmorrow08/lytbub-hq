@@ -90,8 +90,8 @@ export async function POST(req: Request) {
 
     const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
     const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
       process.env.SITE_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
       'https://lytbub-hq.vercel.app';
 
     let session: Stripe.Response<Stripe.Checkout.Session>;
