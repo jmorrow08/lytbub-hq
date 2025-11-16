@@ -1,17 +1,16 @@
 'use client';
 export const dynamic = "force-dynamic";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { supabase } from '@/lib/supabaseClient';
 import { getClientProjects, getPayments } from '@/lib/api';
-import { FunctionsHttpError, FunctionsRelayError, FunctionsFetchError } from '@supabase/supabase-js';
-import type { Payment, Project } from '@/types';
+import type { CheckoutSessionResponse, Payment, Project } from '@/types';
 import { Loader2, Copy, ExternalLink } from 'lucide-react';
 import { runFinanceBackfills } from '@/lib/maintenance';
+import { executeStripeCheckout } from '@/lib/payments';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -23,53 +22,15 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
   timeStyle: 'short',
 });
 
-type CheckoutResponse = {
-  url?: string;
-  paymentId?: string;
-  error?: string;
-};
-
-async function callSupabaseCheckoutFunction(
-  accessToken: string,
-  payload: { amountCents: number; description?: string; projectId?: string }
-): Promise<CheckoutResponse> {
-  try {
-    const { data, error } = await supabase.functions.invoke('stripe_checkout_create', {
-      body: payload,
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (error) {
-      // Extract detailed message for HTTP errors returned by the Edge Function
-      if (error instanceof FunctionsHttpError) {
-        try {
-          const details = await error.context.json();
-          const message =
-            (typeof details === 'string' ? details : details?.error || details?.message) ||
-            'Payment service returned an error.';
-          return { error: message };
-        } catch {
-          return { error: 'Payment service returned an error.' };
-        }
-      }
-      // Other error types (relay/fetch) surface a meaningful .message
-      if (error instanceof FunctionsRelayError || error instanceof FunctionsFetchError) {
-        return { error: error.message || 'Payment service returned an error.' };
-      }
-      return { error: (error as Error)?.message || 'Payment service returned an error.' };
-    }
-    return (data as unknown as CheckoutResponse) || {};
-  } catch {
-    return { error: 'Unable to reach payment service. Please try again later.' };
-  }
-}
-
 export default function FinancePage() {
   const [clientProjects, setClientProjects] = useState<Project[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [linkResult, setLinkResult] = useState<{ url: string; paymentId: string } | null>(null);
+  const [linkResult, setLinkResult] = useState<CheckoutSessionResponse | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [formData, setFormData] = useState({
     amount: '',
     description: '',
@@ -97,6 +58,22 @@ export default function FinancePage() {
     runFinanceBackfills().finally(loadFinanceData);
   }, []);
 
+  const triggerToast = (type: 'success' | 'error', message: string) => {
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+    }
+    setToast({ type, message });
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) {
+        clearTimeout(toastTimer.current);
+      }
+    };
+  }, []);
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const amountValue = parseFloat(formData.amount);
@@ -111,45 +88,15 @@ export default function FinancePage() {
     setLinkResult(null);
 
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const accessToken = session.session?.access_token;
-      if (!accessToken) {
-        throw new Error('You must be signed in to create a payment link.');
-      }
+      const selectedClient =
+        clientProjects.find((project) => project.id === formData.projectId) ?? null;
+      const checkout = await executeStripeCheckout(
+        amountValue,
+        formData.description,
+        selectedClient ? { id: selectedClient.id, name: selectedClient.name } : null
+      );
 
-      const res = await fetch('/api/finance/create-checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          amountCents: Math.round(amountValue * 100),
-          description: formData.description.trim() || undefined,
-          projectId: formData.projectId || undefined,
-        }),
-      });
-
-      let data: CheckoutResponse;
-      if (res.status === 404) {
-        // Fallback: call Supabase Edge Function directly when API route is unavailable
-        data = await callSupabaseCheckoutFunction(accessToken, {
-          amountCents: Math.round(amountValue * 100),
-          description: formData.description.trim() || undefined,
-          projectId: formData.projectId || undefined,
-        });
-      } else {
-        data = (await res.json()) as CheckoutResponse;
-      }
-
-      if (!res.ok && res.status !== 404) {
-        throw new Error(data?.error || 'Failed to create checkout link');
-      }
-      if (!data?.url || !data?.paymentId) {
-        throw new Error(data?.error || 'Failed to create checkout link');
-      }
-
-      setLinkResult({ url: data.url, paymentId: data.paymentId });
+      setLinkResult(checkout);
       setFormData({ amount: '', description: '', projectId: '' });
       loadFinanceData();
     } catch (err) {
@@ -163,10 +110,17 @@ export default function FinancePage() {
   const copyToClipboard = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
+      triggerToast('success', 'Checkout link copied to clipboard.');
     } catch (err) {
       console.error('Clipboard error', err);
+      triggerToast('error', 'Unable to copy link. Please copy manually.');
     }
   };
+
+  const selectedClient = useMemo(() => {
+    if (!formData.projectId) return null;
+    return clientProjects.find((project) => project.id === formData.projectId) ?? null;
+  }, [clientProjects, formData.projectId]);
 
   if (loading) {
     return (
@@ -181,6 +135,18 @@ export default function FinancePage() {
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 rounded-md border px-4 py-3 text-sm shadow-lg ${
+            toast.type === 'success'
+              ? 'bg-green-500/10 border-green-500/40 text-green-600 dark:text-green-400'
+              : 'bg-red-500/10 border-red-500/40 text-red-600 dark:text-red-400'
+          }`}
+          role="status"
+        >
+          {toast.message}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Finance</h1>
@@ -255,6 +221,12 @@ export default function FinancePage() {
                 {!hasClients && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     No client projects yet. Add one via the Projects tab by selecting the Client type.
+                  </p>
+                )}
+                {selectedClient && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Billing for:{' '}
+                    <span className="font-medium text-foreground">{selectedClient.name}</span>
                   </p>
                 )}
               </div>

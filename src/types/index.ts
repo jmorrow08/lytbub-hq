@@ -52,6 +52,16 @@ export interface Payment {
   created_at: string;
 }
 
+export interface CheckoutSessionResponse {
+  url: string;
+  paymentId: string;
+}
+
+export interface CheckoutMetadata {
+  clientId: string;
+  clientName: string;
+}
+
 export interface Task {
   id: string;
   title: string;

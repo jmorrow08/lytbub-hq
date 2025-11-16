@@ -9,6 +9,11 @@ type CreateCheckoutPayload = {
   customerEmail?: string;
 };
 
+type CheckoutMetadata = {
+  clientId: string;
+  clientName: string;
+};
+
 const buildCors = (req: Request) => {
   const origin = req.headers.get('origin') ?? '*';
   // Return permissive CORS headers while still echoing the caller's origin.
@@ -25,6 +30,7 @@ const buildCors = (req: Request) => {
 };
 
 Deno.serve(async (req) => {
+  console.log('[stripe_checkout_create] start', { method: req.method });
   const cors = buildCors(req);
   const respond = (status: number, body: Record<string, unknown>) =>
     new Response(JSON.stringify(body), {
@@ -69,6 +75,7 @@ Deno.serve(async (req) => {
   let payload: CreateCheckoutPayload;
   try {
     payload = await req.json();
+    console.log('[stripe_checkout_create] received body', payload);
   } catch (error) {
     console.error('Invalid JSON payload', error);
     return respond(400, { error: 'Invalid JSON payload' });
@@ -76,11 +83,56 @@ Deno.serve(async (req) => {
 
   const amountCents = Number(payload.amountCents);
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    console.log('[stripe_checkout_create] validation failed', { amountCents });
     return respond(400, { error: 'amountCents must be a positive number' });
   }
 
   const currency = (payload.currency || 'usd').toLowerCase();
   const description = payload.description?.trim() || 'Lytbub HQ Payment';
+  console.log('[stripe_checkout_create] validation passed', {
+    amountCents,
+    currency,
+    projectId: payload.projectId || null,
+  });
+
+  const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabaseClient.auth.getUser();
+
+  if (userError || !user) {
+    console.error('Unable to resolve Supabase user', userError);
+    return respond(401, { error: 'Unauthorized' });
+  }
+
+  const linkedProjectId: string | null = payload.projectId || null;
+  let projectMetadata: CheckoutMetadata | Record<string, never> = {};
+  if (linkedProjectId) {
+    const { data: projectRecord, error: projectError } = await supabaseClient
+      .from('projects')
+      .select('id, name')
+      .eq('id', linkedProjectId)
+      .eq('created_by', user.id)
+      .eq('type', 'client')
+      .maybeSingle();
+
+    if (projectError) {
+      console.error('Failed to validate client project', projectError);
+      return respond(500, { error: 'Unable to validate client project' });
+    }
+
+    if (!projectRecord) {
+      return respond(400, { error: 'Client project not found' });
+    }
+    projectMetadata = {
+      clientId: projectRecord.id,
+      clientName: projectRecord.name || 'Client',
+    };
+  }
 
   const stripe = new Stripe(stripeSecretKey, {
     apiVersion: '2024-06-20',
@@ -96,6 +148,7 @@ Deno.serve(async (req) => {
 
   let session;
   try {
+    console.log('[stripe_checkout_create] creating Stripe session');
     session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [
@@ -113,44 +166,14 @@ Deno.serve(async (req) => {
       success_url: successUrl,
       cancel_url: cancelUrl,
       customer_email: payload.customerEmail || undefined,
+      metadata: projectMetadata,
+    });
+    console.log('[stripe_checkout_create] stripe session created', {
+      sessionId: session.id,
     });
   } catch (error) {
     console.error('Stripe session creation failed', error);
     return respond(500, { error: 'Failed to create checkout session' });
-  }
-
-  const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseClient.auth.getUser();
-
-  if (userError || !user) {
-    console.error('Unable to resolve Supabase user', userError);
-    return respond(401, { error: 'Unauthorized' });
-  }
-
-  const linkedProjectId: string | null = payload.projectId || null;
-  if (linkedProjectId) {
-    const { data: projectRecord, error: projectError } = await supabaseClient
-      .from('projects')
-      .select('id')
-      .eq('id', linkedProjectId)
-      .eq('created_by', user.id)
-      .eq('type', 'client')
-      .maybeSingle();
-
-    if (projectError) {
-      console.error('Failed to validate client project', projectError);
-      return respond(500, { error: 'Unable to validate client project' });
-    }
-
-    if (!projectRecord) {
-      return respond(400, { error: 'Client project not found' });
-    }
   }
 
   const { data: paymentRow, error: insertError } = await supabaseClient
@@ -172,6 +195,11 @@ Deno.serve(async (req) => {
     console.error('Failed to persist payment row', insertError);
     return respond(500, { error: 'Failed to log payment' });
   }
+
+  console.log('[stripe_checkout_create] return payload', {
+    paymentId: paymentRow.id,
+    stripeId: session.id,
+  });
 
   return respond(200, {
     url: session.url,

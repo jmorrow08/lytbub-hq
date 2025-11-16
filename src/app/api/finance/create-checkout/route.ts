@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import type { CheckoutMetadata } from '@/types';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
 const STRIPE_FUNCTION_NAME = 'stripe_checkout_create';
@@ -69,10 +70,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    let projectRecord: { id: string; name?: string | null } | null = null;
     if (projectId) {
-      const { data: projectRecord, error: projectError } = await supabase
+      const { data, error: projectError } = await supabase
         .from('projects')
-        .select('id')
+        .select('id, name')
         .eq('id', projectId)
         .eq('created_by', user.id)
         .eq('type', 'client')
@@ -86,10 +88,18 @@ export async function POST(req: Request) {
         );
       }
 
-      if (!projectRecord) {
+      if (!data) {
         return NextResponse.json({ error: 'Client project not found.' }, { status: 400 });
       }
+      projectRecord = data;
     }
+    const clientMetadata: CheckoutMetadata | Record<string, never> =
+      projectRecord !== null
+        ? {
+            clientId: projectRecord.id,
+            clientName: projectRecord.name || 'Client',
+          }
+        : {};
 
     if (!stripeSecretKey) {
       if (!supabaseFunctionsOrigin) {
@@ -140,6 +150,7 @@ export async function POST(req: Request) {
         success_url: `${siteUrl}/finance?status=success`,
         cancel_url: `${siteUrl}/finance?status=cancelled`,
         customer_email: payload?.customerEmail || undefined,
+        metadata: clientMetadata as Stripe.MetadataParam,
       });
     } catch (error) {
       console.error('[api/finance/create-checkout] Stripe session creation failed', error);
@@ -250,4 +261,3 @@ async function forwardToSupabaseFunction({
     );
   }
 }
-
