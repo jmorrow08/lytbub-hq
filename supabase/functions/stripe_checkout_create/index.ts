@@ -11,10 +11,16 @@ type CreateCheckoutPayload = {
 
 const buildCors = (req: Request) => {
   const origin = req.headers.get('origin') ?? '*';
+  // Return permissive CORS headers while still echoing the caller's origin.
+  // Include common headers used by Supabase client and our app.
+  const allowHeaders =
+    'authorization, Authorization, x-client-info, apikey, content-type';
   return {
     'Access-Control-Allow-Origin': origin,
     'Vary': 'Origin',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Headers': allowHeaders,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
   } as const;
 };
 
@@ -34,7 +40,6 @@ Deno.serve(async (req) => {
       status: 200,
       headers: {
         ...cors,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
       },
     });
   }
