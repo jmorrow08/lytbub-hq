@@ -147,8 +147,8 @@ export async function POST(req: Request) {
             quantity: 1,
           },
         ],
-        success_url: `${siteUrl}/finance?status=success`,
-        cancel_url: `${siteUrl}/finance?status=cancelled`,
+        success_url: `${siteUrl}/payment/success`,
+        cancel_url: `${siteUrl}/payment/cancel`,
         customer_email: payload?.customerEmail || undefined,
         metadata: clientMetadata as Stripe.MetadataParam,
       });

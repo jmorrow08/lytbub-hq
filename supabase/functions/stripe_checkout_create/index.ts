@@ -143,8 +143,8 @@ Deno.serve(async (req) => {
     Deno.env.get('SITE_URL') ||
     'https://lytbub-hq.vercel.app';
 
-  const successUrl = `${siteUrl}/finance?status=success`;
-  const cancelUrl = `${siteUrl}/finance?status=cancelled`;
+  const successUrl = `${siteUrl}/payment/success`;
+  const cancelUrl = `${siteUrl}/payment/cancel`;
 
   let session;
   try {
