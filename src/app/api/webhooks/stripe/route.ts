@@ -90,7 +90,7 @@ async function handleInvoicePaid(
   const taxCents =
     invoice.total_tax_amounts?.reduce((sum, tax) => sum + (tax.amount ?? 0), 0) ?? 0;
 
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from('invoices')
     .update({
       status: 'paid',
@@ -108,6 +108,10 @@ async function handleInvoicePaid(
       },
     })
     .eq('stripe_invoice_id', stripeInvoiceId);
+
+  if (error) {
+    throw new Error(`[stripe webhook] Failed to update paid invoice ${stripeInvoiceId}: ${error.message}`);
+  }
 }
 
 async function handleInvoicePaymentFailed(
@@ -115,7 +119,7 @@ async function handleInvoicePaymentFailed(
   supabaseAdmin: ReturnType<typeof createClient>
 ): Promise<void> {
   const attempt = invoice.attempt_count ?? 0;
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from('invoices')
     .update({
       status: 'open',
@@ -126,5 +130,9 @@ async function handleInvoicePaymentFailed(
       },
     })
     .eq('stripe_invoice_id', invoice.id);
+
+  if (error) {
+    throw new Error(`[stripe webhook] Failed to update failed invoice ${invoice.id}: ${error.message}`);
+  }
 }
 
