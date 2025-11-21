@@ -64,6 +64,7 @@ export interface CheckoutMetadata {
 
 export interface Task {
   id: string;
+  created_by: string;
   title: string;
   description?: string;
   completed: boolean;
@@ -75,6 +76,7 @@ export interface Task {
 
 export interface Revenue {
   id: string;
+  created_by: string;
   source: string;
   amount: number;
   description?: string;
@@ -83,6 +85,7 @@ export interface Revenue {
 
 export interface Content {
   id: string;
+  created_by: string;
   title: string;
   platform: string;
   views: number;

@@ -92,8 +92,8 @@ export default async function PaymentCancelPage({
           ) : (
             <div className="rounded-lg border border-dashed bg-muted/40 px-4 py-6 text-center">
               <p className="text-sm text-muted-foreground">
-                We couldn't find details for this payment link. Please contact the Lytbub team if you
-                need help restarting checkout.
+                We couldn&rsquo;t find details for this payment link. Please contact the Lytbub team if
+                you need help restarting checkout.
               </p>
             </div>
           )}

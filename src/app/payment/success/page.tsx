@@ -86,8 +86,8 @@ export default async function PaymentSuccessPage({
           ) : (
             <div className="rounded-lg border border-dashed bg-muted/40 px-4 py-6 text-center">
               <p className="text-sm text-muted-foreground">
-                We couldn't load this payment. If you just completed checkout, please share the link
-                with the Lytbub team so we can verify it manually.
+                We couldn&rsquo;t load this payment. If you just completed checkout, please share the
+                link with the Lytbub team so we can verify it manually.
               </p>
             </div>
           )}

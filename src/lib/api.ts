@@ -66,10 +66,13 @@ const fetchHealthEntryForDay = (dayKey: string, userId: string | null) => {
 // Tasks API
 export const getTasks = async (options: TaskQueryOptions = {}): Promise<Task[]> => {
   const { projectId, limit = 5, unassigned } = options;
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
 
   let query = supabase
     .from('tasks')
     .select('*, project:projects(*)')
+    .eq('created_by', userId)
     .order('created_at', { ascending: false });
 
   if (unassigned) {
@@ -89,7 +92,12 @@ export const getTasks = async (options: TaskQueryOptions = {}): Promise<Task[]> 
 };
 
 export const createTask = async (task: CreateTaskData): Promise<Task> => {
-  const payload = { ...task, project_id: task.project_id || null };
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to create tasks.');
+  }
+
+  const payload = { ...task, project_id: task.project_id || null, created_by: userId };
   const { data, error } = await supabase.from('tasks').insert(payload).select().single();
 
   if (error) throw error;
@@ -124,9 +132,13 @@ export const deleteTask = async (id: string): Promise<void> => {
 
 // Revenue API
 export const getRevenue = async (): Promise<Revenue[]> => {
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
+
   const { data, error } = await supabase
     .from('revenue')
     .select('*')
+    .eq('created_by', userId)
     .order('created_at', { ascending: false })
     .limit(5);
 
@@ -135,7 +147,15 @@ export const getRevenue = async (): Promise<Revenue[]> => {
 };
 
 export const createRevenue = async (revenue: CreateRevenueData): Promise<Revenue> => {
-  const { data, error } = await supabase.from('revenue').insert(revenue).select().single();
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to create revenue entries.');
+  }
+  const { data, error } = await supabase
+    .from('revenue')
+    .insert({ ...revenue, created_by: userId })
+    .select()
+    .single();
 
   if (error) throw error;
   return data;
@@ -161,10 +181,13 @@ export const deleteRevenue = async (id: string): Promise<void> => {
 // Content API
 export const getContent = async (options: ContentQueryOptions = {}): Promise<Content[]> => {
   const { projectId, limit = 5, unassigned } = options;
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
 
   let query = supabase
     .from('content')
     .select('*, project:projects(*)')
+    .eq('created_by', userId)
     .order('created_at', { ascending: false });
 
   if (unassigned) {
@@ -184,7 +207,11 @@ export const getContent = async (options: ContentQueryOptions = {}): Promise<Con
 };
 
 export const createContent = async (content: CreateContentData): Promise<Content> => {
-  const payload = { ...content, project_id: content.project_id || null };
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to create content.');
+  }
+  const payload = { ...content, project_id: content.project_id || null, created_by: userId };
   const { data, error } = await supabase.from('content').insert(payload).select().single();
 
   if (error) throw error;
@@ -220,6 +247,7 @@ export const deleteContent = async (id: string): Promise<void> => {
 // Health API
 export const getHealth = async (): Promise<Health[]> => {
   const userId = await getCurrentUserId();
+  if (!userId) return [];
 
   let query = supabase
     .from('health')
@@ -228,9 +256,7 @@ export const getHealth = async (): Promise<Health[]> => {
     .order('date', { ascending: false })
     .limit(5);
 
-  if (userId) {
-    query = query.eq('user_id', userId);
-  }
+  query = query.eq('user_id', userId);
 
   const { data, error } = await query;
 
@@ -241,6 +267,9 @@ export const getHealth = async (): Promise<Health[]> => {
 export const getTodayHealth = async (): Promise<Health | null> => {
   const timezone = await getActiveTimezone(supabase);
   const userId = await getCurrentUserId();
+  if (!userId) {
+    return null;
+  }
   const dayKey = getZonedDayKey(new Date(), timezone);
 
   const { data, error } = await fetchHealthEntryForDay(dayKey, userId);
@@ -256,6 +285,9 @@ export const getTodayHealth = async (): Promise<Health | null> => {
 export const createOrUpdateHealth = async (health: CreateHealthData): Promise<Health> => {
   const timezone = health.timezone || (await getActiveTimezone(supabase));
   const userId = health.user_id ?? (await getCurrentUserId());
+  if (!userId) {
+    throw new Error('You must be signed in to log health entries.');
+  }
   const now = new Date();
   const dayKey = health.day_key || health.date || getZonedDayKey(now, timezone);
 
@@ -270,17 +302,14 @@ export const createOrUpdateHealth = async (health: CreateHealthData): Promise<He
     day_key: dayKey,
     day_start_utc: dayStartUtc,
     timezone,
-    user_id: userId ?? null,
+    user_id: userId,
     energy: health.energy,
     sleep_hours: health.sleep_hours,
     workout: Boolean(health.workout),
     notes: health.notes,
   };
 
-  const matchFilters: Record<string, string> = { day_key: dayKey };
-  if (userId) {
-    matchFilters.user_id = userId;
-  }
+  const matchFilters: Record<string, string> = { day_key: dayKey, user_id: userId };
 
   const existing = await supabase.from('health').select('id').match(matchFilters).maybeSingle();
 
@@ -333,15 +362,30 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
   const now = new Date();
   const dayKey = getZonedDayKey(now, timezone);
   const todayStartUtc = getStartOfZonedDayUTC(now, timezone);
+  const baseStats: DashboardStats = {
+    totalTasks: 0,
+    completedTasks: 0,
+    totalRevenue: 0,
+    todayRevenue: 0,
+    totalContent: 0,
+    totalViews: 0,
+    projectSummaries: [],
+    activeTimezone: timezone,
+  };
+
+  if (!userId) {
+    return baseStats;
+  }
+
   const tomorrowStartUtc = addDays(todayStartUtc, 1);
   const currentMonthRange = getMonthRangeUTC(now, timezone);
   const previousMonthRange = getMonthRangeUTC(addMonths(now, -1), timezone);
 
   const [tasks, revenue, content, projects, projectStats, todayHealthResponse] = await Promise.all([
-    supabase.from('tasks').select('completed, project_id'),
-    supabase.from('revenue').select('amount, created_at'),
-    supabase.from('content').select('views, project_id'),
-    supabase.from('projects').select('*'),
+    supabase.from('tasks').select('completed, project_id').eq('created_by', userId),
+    supabase.from('revenue').select('amount, created_at').eq('created_by', userId),
+    supabase.from('content').select('views, project_id').eq('created_by', userId),
+    supabase.from('projects').select('*').eq('created_by', userId),
     supabase.from('project_stats').select('*'),
     fetchHealthEntryForDay(dayKey, userId),
   ]);
@@ -404,6 +448,7 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
   }
 
   return {
+    ...baseStats,
     totalTasks,
     completedTasks,
     totalRevenue,
@@ -414,15 +459,18 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     totalViews,
     todayHealth: (todayHealthResponse.data as Health | null) || undefined,
     projectSummaries,
-    activeTimezone: timezone,
   };
 };
 
 // Projects API
 export const getProjects = async (): Promise<ProjectWithChannels[]> => {
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
+
   const { data, error } = await supabase
     .from('projects')
     .select('*, channels:project_channels(*)')
+    .eq('created_by', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -430,10 +478,16 @@ export const getProjects = async (): Promise<ProjectWithChannels[]> => {
 };
 
 export const getProject = async (id: string): Promise<ProjectWithChannels> => {
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to access projects.');
+  }
+
   const { data, error } = await supabase
     .from('projects')
     .select('*, channels:project_channels(*)')
     .eq('id', id)
+    .eq('created_by', userId)
     .single();
 
   if (error) throw error;
@@ -473,6 +527,9 @@ export const deleteProject = async (id: string): Promise<void> => {
 };
 
 export const getProjectStats = async (): Promise<ProjectStats[]> => {
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
+
   const { data, error } = await supabase.from('project_stats').select('*');
   if (error) throw error;
   return (data as ProjectStats[]) || [];
@@ -518,7 +575,7 @@ export const getClientProjects = async (): Promise<Project[]> => {
     .from('projects')
     .select('*')
     .eq('type', 'client')
-    .or(`created_by.eq.${userId},created_by.is.null`)
+    .eq('created_by', userId)
     .order('name', { ascending: true });
 
   if (error) throw error;
@@ -526,12 +583,21 @@ export const getClientProjects = async (): Promise<Project[]> => {
 };
 
 export const getPayments = async (): Promise<Payment[]> => {
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
+
   const { data, error } = await supabase
     .from('payments')
     .select('*, project:projects(*)')
+    .eq('created_by', userId)
     .order('created_at', { ascending: false })
     .limit(25);
 
   if (error) throw error;
   return (data as Payment[]) || [];
+};
+
+export const deletePayment = async (id: string): Promise<void> => {
+  const { error } = await supabase.from('payments').delete().eq('id', id);
+  if (error) throw error;
 };

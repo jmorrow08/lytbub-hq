@@ -6,9 +6,9 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getClientProjects, getPayments } from '@/lib/api';
+import { deletePayment, getClientProjects, getPayments } from '@/lib/api';
 import type { CheckoutSessionResponse, Payment, Project } from '@/types';
-import { Loader2, Copy, ExternalLink } from 'lucide-react';
+import { Loader2, Copy, ExternalLink, Trash2 } from 'lucide-react';
 import { runFinanceBackfills } from '@/lib/maintenance';
 import { executeStripeCheckout } from '@/lib/payments';
 
@@ -27,6 +27,7 @@ export default function FinancePage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkResult, setLinkResult] = useState<CheckoutSessionResponse | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -121,6 +122,27 @@ export default function FinancePage() {
     if (!formData.projectId) return null;
     return clientProjects.find((project) => project.id === formData.projectId) ?? null;
   }, [clientProjects, formData.projectId]);
+
+  const handleDeletePayment = async (paymentId: string) => {
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        'Delete this payment entry? This action cannot be undone.'
+      );
+      if (!confirmed) return;
+    }
+
+    setDeletingPaymentId(paymentId);
+    try {
+      await deletePayment(paymentId);
+      setPayments((prev) => prev.filter((payment) => payment.id !== paymentId));
+      triggerToast('success', 'Payment entry deleted.');
+    } catch (err) {
+      console.error(err);
+      triggerToast('error', err instanceof Error ? err.message : 'Failed to delete payment.');
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -290,7 +312,7 @@ export default function FinancePage() {
                   <th className="py-2 text-left">Amount</th>
                   <th className="py-2 text-left">Type</th>
                   <th className="py-2 text-left">Status</th>
-                  <th className="py-2 text-right">Link</th>
+                  <th className="py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -304,12 +326,30 @@ export default function FinancePage() {
                     </td>
                     <td className="py-3 capitalize">{payment.link_type.replace('_', ' ')}</td>
                     <td className="py-3">{payment.status || 'Pending'}</td>
-                    <td className="py-3 text-right">
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={payment.url} target="_blank">
-                          Open
-                        </Link>
-                      </Button>
+                    <td className="py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={payment.url} target="_blank">
+                            Open
+                          </Link>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleDeletePayment(payment.id)}
+                          disabled={deletingPaymentId === payment.id}
+                        >
+                          {deletingPaymentId === payment.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Trash2 className="h-4 w-4" />
+                              <span>Delete</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
