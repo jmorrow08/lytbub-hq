@@ -171,7 +171,7 @@ export default function BillingPage() {
       const project = clients.find((client) => client.id === periodForm.projectId);
       const period = await createBillingPeriod({
         projectId: periodForm.projectId,
-        clientId: project?.client_id,
+        clientId: project?.client_id ?? undefined,
         periodStart: periodForm.periodStart,
         periodEnd: periodForm.periodEnd,
         notes: periodForm.notes || undefined,
