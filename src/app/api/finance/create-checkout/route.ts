@@ -16,6 +16,18 @@ type CheckoutPayload = {
   customerEmail?: string;
 };
 
+type ClientSummary = {
+  id: string;
+  name?: string | null;
+};
+
+type ProjectSummary = {
+  id: string;
+  name?: string | null;
+  client_id?: string | null;
+  client?: ClientSummary | null;
+};
+
 export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -72,15 +84,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    let projectRecord:
-      | {
-          id: string;
-          name?: string | null;
-          client_id?: string | null;
-          client?: { id: string; name?: string | null } | null;
-        }
-      | null = null;
-    let clientRecord: { id: string; name?: string | null } | null = null;
+    let projectRecord: ProjectSummary | null = null;
+    let clientRecord: ClientSummary | null = null;
 
     if (clientId) {
       const { data, error: clientError } = await supabase
@@ -105,7 +110,7 @@ export async function POST(req: Request) {
     }
 
     if (projectId) {
-      const { data, error: projectError } = await supabase
+      const { data: projectData, error: projectError } = await supabase
         .from('projects')
         .select('id, name, client_id, client:clients(id, name)')
         .eq('id', projectId)
@@ -120,30 +125,39 @@ export async function POST(req: Request) {
         );
       }
 
-      if (!data) {
+      if (!projectData) {
         return NextResponse.json({ error: 'Client project not found.' }, { status: 400 });
       }
-      projectRecord = data as typeof projectRecord extends infer T ? T : never;
+      const rawClient =
+        Array.isArray((projectData as any).client) && (projectData as any).client.length > 0
+          ? (projectData as any).client[0]
+          : (projectData as any).client ?? null;
+      const normalizedClient =
+        rawClient && typeof rawClient.id === 'string'
+          ? ({
+              id: rawClient.id,
+              name: typeof rawClient.name === 'string' ? rawClient.name : null,
+            } satisfies ClientSummary)
+          : null;
+
+      projectRecord = {
+        id: projectData.id,
+        name: projectData.name ?? null,
+        client_id: projectData.client_id ?? null,
+        client: normalizedClient,
+      };
 
       if (!clientRecord) {
-        const rawClient =
-          Array.isArray((data as any).client) && (data as any).client.length > 0
-            ? (data as any).client[0]
-            : (data as any).client || null;
-        const normalizedClient =
-          rawClient && typeof rawClient.id === 'string'
-            ? ({ id: rawClient.id, name: rawClient.name ?? null } as {
-                id: string;
-                name?: string | null;
-              })
-            : null;
-        const candidate =
-          normalizedClient ||
-          ((data as any).client_id
-            ? ({
-                id: (data as any).client_id,
-                name: (data as any).name ?? null,
-              } as { id: string; name?: string | null })
+        const candidate: ClientSummary | null =
+          normalizedClient ??
+          (typeof (projectData as any).client_id === 'string'
+            ? {
+                id: (projectData as any).client_id,
+                name:
+                  typeof (projectData as any).name === 'string'
+                    ? (projectData as any).name
+                    : null,
+              }
             : null);
         clientRecord = candidate;
       }
