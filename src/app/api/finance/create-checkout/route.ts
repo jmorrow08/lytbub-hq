@@ -123,12 +123,28 @@ export async function POST(req: Request) {
       if (!data) {
         return NextResponse.json({ error: 'Client project not found.' }, { status: 400 });
       }
-      projectRecord = data;
+      projectRecord = data as typeof projectRecord extends infer T ? T : never;
 
       if (!clientRecord) {
+        const rawClient =
+          Array.isArray((data as any).client) && (data as any).client.length > 0
+            ? (data as any).client[0]
+            : (data as any).client || null;
+        const normalizedClient =
+          rawClient && typeof rawClient.id === 'string'
+            ? ({ id: rawClient.id, name: rawClient.name ?? null } as {
+                id: string;
+                name?: string | null;
+              })
+            : null;
         const candidate =
-          (data.client as { id: string; name?: string | null } | null) ||
-          (data.client_id ? { id: data.client_id, name: data.name } : null);
+          normalizedClient ||
+          ((data as any).client_id
+            ? ({
+                id: (data as any).client_id,
+                name: (data as any).name ?? null,
+              } as { id: string; name?: string | null })
+            : null);
         clientRecord = candidate;
       }
     }
