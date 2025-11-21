@@ -168,8 +168,10 @@ export default function BillingPage() {
     }
     setCreatingPeriod(true);
     try {
+      const project = clients.find((client) => client.id === periodForm.projectId);
       const period = await createBillingPeriod({
         projectId: periodForm.projectId,
+        clientId: project?.client_id,
         periodStart: periodForm.periodStart,
         periodEnd: periodForm.periodEnd,
         notes: periodForm.notes || undefined,
@@ -403,4 +405,3 @@ export default function BillingPage() {
     </div>
   );
 }
-

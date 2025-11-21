@@ -31,10 +31,14 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const projectId = url.searchParams.get('projectId');
+    const clientId = url.searchParams.get('clientId');
 
     let query = supabase.from('billing_periods').select('*').eq('created_by', user.id);
     if (projectId) {
       query = query.eq('project_id', projectId);
+    }
+    if (clientId) {
+      query = query.eq('client_id', clientId);
     }
     query = query.order('period_start', { ascending: false }).limit(100);
 
@@ -56,6 +60,7 @@ type CreateBillingPeriodPayload = {
   periodStart: string;
   periodEnd: string;
   notes?: string;
+  clientId?: string;
 };
 
 export async function POST(req: Request) {
@@ -101,10 +106,9 @@ export async function POST(req: Request) {
 
     const { data: project, error: projectError } = await supabase
       .from('projects')
-      .select('id')
+      .select('id, client_id')
       .eq('id', payload.projectId)
       .eq('created_by', user.id)
-      .eq('type', 'client')
       .maybeSingle();
 
     if (projectError) {
@@ -116,10 +120,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
     }
 
+    let clientId: string | null = payload.clientId || project.client_id || null;
+    if (payload.clientId) {
+      const { data: clientLookup, error: clientError } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('id', payload.clientId)
+        .eq('created_by', user.id)
+        .maybeSingle();
+      if (clientError) {
+        console.error('[api/billing/billing-periods] client lookup failed', clientError);
+        return NextResponse.json({ error: 'Unable to load client.' }, { status: 500 });
+      }
+      if (!clientLookup) {
+        return NextResponse.json({ error: 'Client not found.' }, { status: 404 });
+      }
+    }
+
+    if (project.client_id && clientId && project.client_id !== clientId) {
+      return NextResponse.json({ error: 'Client does not match selected project.' }, { status: 400 });
+    }
+
+    if (!clientId) {
+      return NextResponse.json({ error: 'Select a client for this billing period.' }, { status: 400 });
+    }
+
     const { data, error } = await supabase
       .from('billing_periods')
       .insert({
         project_id: project.id,
+        client_id: clientId,
         period_start: periodStartDate.toISOString().slice(0, 10),
         period_end: periodEndDate.toISOString().slice(0, 10),
         status: 'draft',
@@ -140,4 +170,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
-

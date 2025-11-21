@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CheckSquare, DollarSign, Video, Heart, FolderKanban, CreditCard } from 'lucide-react';
+import { CheckSquare, DollarSign, Video, Heart, FolderKanban, CreditCard, UserCircle } from 'lucide-react';
 import { useAuth } from './auth/AuthProvider';
 import { Button } from './ui/button';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: CheckSquare },
   { name: 'Projects', href: '/projects', icon: FolderKanban },
+  { name: 'Clients', href: '/clients', icon: UserCircle },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Finance', href: '/finance', icon: CreditCard },
   { name: 'Revenue', href: '/revenue', icon: DollarSign },

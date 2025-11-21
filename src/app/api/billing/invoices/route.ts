@@ -18,6 +18,7 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const projectId = url.searchParams.get('projectId');
+    const clientId = url.searchParams.get('clientId');
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -34,13 +35,16 @@ export async function GET(req: Request) {
 
     let query = supabase
       .from('invoices')
-      .select('*, line_items:invoice_line_items(*)')
+      .select('*, line_items:invoice_line_items(*), client:clients(*)')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false })
       .limit(50);
 
     if (projectId) {
       query = query.eq('project_id', projectId);
+    }
+    if (clientId) {
+      query = query.eq('client_id', clientId);
     }
 
     const { data, error } = await query;
@@ -55,4 +59,3 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
-

@@ -4,7 +4,7 @@ import {
   FunctionsHttpError,
   FunctionsRelayError,
 } from '@supabase/supabase-js';
-import type { CheckoutSessionResponse, Project } from '@/types';
+import type { CheckoutSessionResponse, Project, Client } from '@/types';
 
 const CHECKOUT_API_ROUTE = '/api/finance/create-checkout';
 const EDGE_FUNCTION_NAME = 'stripe_checkout_create';
@@ -14,6 +14,7 @@ type CheckoutPayload = {
   amountCents: number;
   description?: string;
   projectId?: string;
+  clientId?: string;
 };
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number) => {
@@ -95,7 +96,8 @@ const callSupabaseEdgeFunction = async (
 export async function executeStripeCheckout(
   amountUsd: number,
   description?: string,
-  client?: Pick<Project, 'id' | 'name'> | null
+  client?: Pick<Client, 'id' | 'name'> | null,
+  project?: Pick<Project, 'id' | 'name'> | null
 ): Promise<CheckoutSessionResponse> {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
     throw new Error('Enter a positive payment amount.');
@@ -110,7 +112,8 @@ export async function executeStripeCheckout(
   const payload: CheckoutPayload = {
     amountCents: Math.round(amountUsd * 100),
     description: description?.trim() || undefined,
-    projectId: client?.id || undefined,
+    clientId: client?.id || undefined,
+    projectId: project?.id || undefined,
   };
 
   let apiError: Error | null = null;

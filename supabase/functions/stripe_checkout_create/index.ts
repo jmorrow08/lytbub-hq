@@ -6,6 +6,7 @@ type CreateCheckoutPayload = {
   currency?: string;
   description?: string;
   projectId?: string;
+  clientId?: string;
   customerEmail?: string;
 };
 
@@ -110,14 +111,38 @@ Deno.serve(async (req) => {
   }
 
   const linkedProjectId: string | null = payload.projectId || null;
+  const linkedClientId: string | null = payload.clientId || null;
   let projectMetadata: CheckoutMetadata | Record<string, never> = {};
-  if (linkedProjectId) {
-    const { data: projectRecord, error: projectError } = await supabaseClient
-      .from('projects')
+  let resolvedClient: { id: string; name?: string | null } | null = null;
+  let projectRecord:
+    | { id: string; name?: string | null; client_id?: string | null; client?: { id: string; name?: string | null } | null }
+    | null = null;
+
+  if (linkedClientId) {
+    const { data: clientRecord, error: clientError } = await supabaseClient
+      .from('clients')
       .select('id, name')
+      .eq('id', linkedClientId)
+      .eq('created_by', user.id)
+      .maybeSingle();
+
+    if (clientError) {
+      console.error('Failed to validate client', clientError);
+      return respond(500, { error: 'Unable to validate client' });
+    }
+
+    if (!clientRecord) {
+      return respond(400, { error: 'Client not found' });
+    }
+    resolvedClient = clientRecord;
+  }
+
+  if (linkedProjectId) {
+    const { data, error: projectError } = await supabaseClient
+      .from('projects')
+      .select('id, name, client_id, client:clients(id, name)')
       .eq('id', linkedProjectId)
       .eq('created_by', user.id)
-      .eq('type', 'client')
       .maybeSingle();
 
     if (projectError) {
@@ -125,12 +150,25 @@ Deno.serve(async (req) => {
       return respond(500, { error: 'Unable to validate client project' });
     }
 
-    if (!projectRecord) {
+    if (!data) {
       return respond(400, { error: 'Client project not found' });
     }
+
+    projectRecord = data;
+
+    if (!resolvedClient) {
+      resolvedClient =
+        (data.client as { id: string; name?: string | null } | null) ||
+        (data.client_id
+          ? { id: data.client_id, name: data.name }
+          : null);
+    }
+  }
+
+  if (resolvedClient) {
     projectMetadata = {
-      clientId: projectRecord.id,
-      clientName: projectRecord.name || 'Client',
+      clientId: resolvedClient.id,
+      clientName: resolvedClient.name || 'Client',
     };
   }
 
@@ -182,6 +220,7 @@ Deno.serve(async (req) => {
     .insert({
       created_by: user.id,
       project_id: linkedProjectId,
+      client_id: resolvedClient?.id || linkedClientId || projectRecord?.client_id || null,
       amount_cents: amountCents,
       currency,
       description,

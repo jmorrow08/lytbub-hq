@@ -66,11 +66,10 @@ export async function POST(req: Request) {
     const { data: project, error: projectError } = await supabase
       .from('projects')
       .select(
-        'id, name, subscription_enabled, base_retainer_cents, payment_method_type, stripe_customer_id, stripe_subscription_id, ach_discount_cents, auto_pay_enabled'
+        'id, name, subscription_enabled, base_retainer_cents, payment_method_type, stripe_customer_id, stripe_subscription_id, ach_discount_cents, auto_pay_enabled, client_id'
       )
       .eq('id', period.project_id)
       .eq('created_by', user.id)
-      .eq('type', 'client')
       .maybeSingle();
 
     if (projectError) {
@@ -87,6 +86,11 @@ export async function POST(req: Request) {
         { error: 'Client is missing a Stripe customer. Configure subscription first.' },
         { status: 400 }
       );
+    }
+
+    const clientId = period.client_id || project.client_id || null;
+    if (!clientId) {
+      return NextResponse.json({ error: 'Client is missing for this project.' }, { status: 400 });
     }
 
     const { data: usageEvents, error: usageError } = await supabase
@@ -198,6 +202,7 @@ export async function POST(req: Request) {
       .insert({
         invoice_number: invoiceNumber,
         project_id: project.id,
+        client_id: clientId,
         billing_period_id: period.id,
         stripe_invoice_id: stripeInvoice.id,
         stripe_customer_id: project.stripe_customer_id,
@@ -275,4 +280,3 @@ function generateInvoiceNumber(periodStart: string): string {
   const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `INV-${year}${month}-${randomSuffix}`;
 }
-

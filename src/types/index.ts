@@ -9,6 +9,8 @@ export interface Project {
   default_platform?: string | null;
   default_handle?: string | null;
   notes?: string | null;
+  client_id?: string | null;
+  client?: Client | null;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -49,6 +51,8 @@ export interface Payment {
   created_by: string;
   project_id?: string | null;
   project?: Project | null;
+  client_id?: string | null;
+  client?: Client | null;
   amount_cents: number;
   currency: string;
   description?: string | null;
@@ -76,6 +80,7 @@ export type InvoiceLineType = 'base_subscription' | 'usage' | 'project' | 'proce
 export interface BillingPeriod {
   id: string;
   project_id: string;
+  client_id?: string | null;
   period_start: string;
   period_end: string;
   status: BillingPeriodStatus;
@@ -117,6 +122,7 @@ export interface Invoice {
   id: string;
   invoice_number: string;
   project_id: string;
+  client_id?: string | null;
   billing_period_id?: string | null;
   stripe_invoice_id?: string | null;
   stripe_customer_id?: string | null;
@@ -134,7 +140,21 @@ export interface Invoice {
   created_by: string;
   created_at: string;
   updated_at?: string | null;
+  client?: Client | null;
   line_items?: InvoiceLineItem[];
+}
+
+export interface Client {
+  id: string;
+  name: string;
+  company_name?: string | null;
+  contact_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  notes?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
 }
 
 export interface Task {
@@ -287,6 +307,7 @@ export interface CreateProjectData {
   default_platform?: string;
   default_handle?: string;
   notes?: string;
+  client_id?: string | null;
 }
 
 export type UpdateProjectData = Partial<CreateProjectData>;
@@ -301,3 +322,14 @@ export interface CreateProjectChannelData {
 }
 
 export type UpdateProjectChannelData = Partial<CreateProjectChannelData>;
+
+export interface CreateClientData {
+  name: string;
+  company_name?: string;
+  contact_name?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+}
+
+export type UpdateClientData = Partial<CreateClientData>;

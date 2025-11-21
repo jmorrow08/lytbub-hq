@@ -6,8 +6,8 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { deletePayment, getClientProjects, getPayments } from '@/lib/api';
-import type { CheckoutSessionResponse, Payment, Project } from '@/types';
+import { deletePayment, getClients, getClientProjects, getPayments } from '@/lib/api';
+import type { CheckoutSessionResponse, Client, Payment, Project } from '@/types';
 import { Loader2, Copy, ExternalLink, Trash2 } from 'lucide-react';
 import { runFinanceBackfills } from '@/lib/maintenance';
 import { executeStripeCheckout } from '@/lib/payments';
@@ -23,6 +23,7 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
 });
 
 export default function FinancePage() {
+  const [clients, setClients] = useState<Client[]>([]);
   const [clientProjects, setClientProjects] = useState<Project[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,18 +36,28 @@ export default function FinancePage() {
   const [formData, setFormData] = useState({
     amount: '',
     description: '',
+    clientId: '',
     projectId: '',
   });
 
-  const hasClients = useMemo(() => clientProjects.length > 0, [clientProjects]);
+  const hasClients = useMemo(() => clients.length > 0, [clients]);
 
   const loadFinanceData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [paymentsData, clientData] = await Promise.all([getPayments(), getClientProjects()]);
+      const [paymentsData, clientData, clientList] = await Promise.all([
+        getPayments(),
+        getClientProjects(),
+        getClients(),
+      ]);
       setPayments(paymentsData);
       setClientProjects(clientData);
+      setClients(clientList);
+      setFormData((prev) => ({
+        ...prev,
+        clientId: prev.clientId || clientList[0]?.id || '',
+      }));
     } catch (err) {
       console.error(err);
       setError('Unable to load finance data. Please ensure you are signed in.');
@@ -83,22 +94,31 @@ export default function FinancePage() {
       setError('Enter a positive payment amount.');
       return;
     }
+    if (!formData.clientId) {
+      setError('Select a client.');
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
     setLinkResult(null);
 
     try {
-      const selectedClient =
-        clientProjects.find((project) => project.id === formData.projectId) ?? null;
+      const projectSelection = selectedProject ?? null;
       const checkout = await executeStripeCheckout(
         amountValue,
         formData.description,
-        selectedClient ? { id: selectedClient.id, name: selectedClient.name } : null
+        selectedClient ? { id: selectedClient.id, name: selectedClient.name } : null,
+        projectSelection ? { id: projectSelection.id, name: projectSelection.name } : null
       );
 
       setLinkResult(checkout);
-      setFormData({ amount: '', description: '', projectId: '' });
+      setFormData((prev) => ({
+        amount: '',
+        description: '',
+        clientId: prev.clientId,
+        projectId: '',
+      }));
       loadFinanceData();
     } catch (err) {
       console.error(err);
@@ -119,9 +139,19 @@ export default function FinancePage() {
   };
 
   const selectedClient = useMemo(() => {
+    if (!formData.clientId) return null;
+    return clients.find((client) => client.id === formData.clientId) ?? null;
+  }, [clients, formData.clientId]);
+
+  const clientProjectOptions = useMemo(() => {
+    if (!formData.clientId) return clientProjects;
+    return clientProjects.filter((project) => project.client_id === formData.clientId);
+  }, [clientProjects, formData.clientId]);
+
+  const selectedProject = useMemo(() => {
     if (!formData.projectId) return null;
-    return clientProjects.find((project) => project.id === formData.projectId) ?? null;
-  }, [clientProjects, formData.projectId]);
+    return clientProjectOptions.find((project) => project.id === formData.projectId) ?? null;
+  }, [clientProjectOptions, formData.projectId]);
 
   const handleDeletePayment = async (paymentId: string) => {
     if (typeof window !== 'undefined') {
@@ -229,6 +259,36 @@ export default function FinancePage() {
                 />
               </div>
               <div>
+                <label htmlFor="clientId" className="block text-sm font-medium mb-1">
+                  Client *
+                </label>
+                <select
+                  id="clientId"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={formData.clientId}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      clientId: e.target.value,
+                      projectId: '',
+                    }))
+                  }
+                  required
+                >
+                  <option value="">Select client</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+                {!hasClients && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    No clients yet. <Link className="underline" href="/clients">Create a client</Link> to start billing.
+                  </p>
+                )}
+              </div>
+              <div>
                 <label htmlFor="projectId" className="block text-sm font-medium mb-1">
                   Client Project (optional)
                 </label>
@@ -237,17 +297,18 @@ export default function FinancePage() {
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={formData.projectId}
                   onChange={(e) => setFormData((prev) => ({ ...prev, projectId: e.target.value }))}
+                  disabled={!formData.clientId || clientProjectOptions.length === 0}
                 >
-                  <option value="">No client</option>
-                  {clientProjects.map((project) => (
+                  <option value="">No project</option>
+                  {clientProjectOptions.map((project) => (
                     <option key={project.id} value={project.id}>
                       {project.name}
                     </option>
                   ))}
                 </select>
-                {!hasClients && (
+                {formData.clientId && clientProjectOptions.length === 0 && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    No client projects yet. Add one via the Projects tab by selecting the Client type.
+                    No projects linked to this client yet. Add one from the Projects tab.
                   </p>
                 )}
                 {selectedClient && (
@@ -312,7 +373,8 @@ export default function FinancePage() {
               <thead className="text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="py-2 text-left">Created</th>
-                  <th className="py-2 text-left">Client Project</th>
+                  <th className="py-2 text-left">Client</th>
+                  <th className="py-2 text-left">Project</th>
                   <th className="py-2 text-left">Description</th>
                   <th className="py-2 text-left">Amount</th>
                   <th className="py-2 text-left">Type</th>
@@ -324,6 +386,7 @@ export default function FinancePage() {
                 {payments.map((payment) => (
                   <tr key={payment.id} className="border-b border-border/40">
                     <td className="py-3">{dateFormatter.format(new Date(payment.created_at))}</td>
+                    <td className="py-3">{payment.client?.name || '—'}</td>
                     <td className="py-3">{payment.project?.name || '—'}</td>
                     <td className="py-3">{payment.description || '—'}</td>
                     <td className="py-3 font-medium">

@@ -48,7 +48,6 @@ export async function PATCH(req: Request) {
       .select('*')
       .eq('id', payload.projectId)
       .eq('created_by', user.id)
-      .eq('type', 'client')
       .maybeSingle();
 
     if (projectError) {
@@ -58,6 +57,10 @@ export async function PATCH(req: Request) {
 
     if (!project) {
       return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
+    }
+
+    if (!project.client_id) {
+      return NextResponse.json({ error: 'Project must be linked to a client first.' }, { status: 400 });
     }
 
     const updates: Record<string, unknown> = {};
@@ -99,4 +102,3 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
-

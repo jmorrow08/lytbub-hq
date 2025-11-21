@@ -12,6 +12,7 @@ type CheckoutPayload = {
   amountCents: number;
   description?: string;
   projectId?: string;
+  clientId?: string;
   customerEmail?: string;
 };
 
@@ -53,6 +54,7 @@ export async function POST(req: Request) {
         : 'Lytbub HQ Payment';
     const currency = 'usd';
     const projectId = payload?.projectId || null;
+    const clientId = payload?.clientId || null;
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
@@ -70,14 +72,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    let projectRecord: { id: string; name?: string | null } | null = null;
+    let projectRecord:
+      | {
+          id: string;
+          name?: string | null;
+          client_id?: string | null;
+          client?: { id: string; name?: string | null } | null;
+        }
+      | null = null;
+    let clientRecord: { id: string; name?: string | null } | null = null;
+
+    if (clientId) {
+      const { data, error: clientError } = await supabase
+        .from('clients')
+        .select('id, name')
+        .eq('id', clientId)
+        .eq('created_by', user.id)
+        .maybeSingle();
+
+      if (clientError) {
+        console.error('[api/finance/create-checkout] Failed to validate client', clientError);
+        return NextResponse.json(
+          { error: 'Unable to validate the selected client.' },
+          { status: 500 }
+        );
+      }
+
+      if (!data) {
+        return NextResponse.json({ error: 'Client not found.' }, { status: 400 });
+      }
+      clientRecord = data;
+    }
+
     if (projectId) {
       const { data, error: projectError } = await supabase
         .from('projects')
-        .select('id, name')
+        .select('id, name, client_id, client:clients(id, name)')
         .eq('id', projectId)
         .eq('created_by', user.id)
-        .eq('type', 'client')
         .maybeSingle();
 
       if (projectError) {
@@ -92,12 +124,22 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Client project not found.' }, { status: 400 });
       }
       projectRecord = data;
+
+      if (!clientRecord) {
+        const candidate =
+          (data.client as { id: string; name?: string | null } | null) ||
+          (data.client_id ? { id: data.client_id, name: data.name } : null);
+        clientRecord = candidate;
+      }
     }
+
+    const resolvedClient = clientRecord;
+
     const clientMetadata: CheckoutMetadata | Record<string, never> =
-      projectRecord !== null
+      resolvedClient !== null
         ? {
-            clientId: projectRecord.id,
-            clientName: projectRecord.name || 'Client',
+            clientId: resolvedClient.id,
+            clientName: resolvedClient.name || 'Client',
           }
         : {};
 
@@ -122,6 +164,7 @@ export async function POST(req: Request) {
           amountCents: Math.round(amountCents),
           description,
           projectId: projectId ?? undefined,
+          clientId: clientId ?? undefined,
           customerEmail: payload?.customerEmail,
         },
       });
@@ -175,6 +218,7 @@ export async function POST(req: Request) {
         id: paymentId,
         created_by: user.id,
         project_id: projectId,
+        client_id: clientId || resolvedClient?.id || projectRecord?.client_id || null,
         amount_cents: Math.round(amountCents),
         currency,
         description,

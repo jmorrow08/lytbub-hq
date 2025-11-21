@@ -61,14 +61,13 @@ export async function POST(req: Request) {
       await Promise.all([
         supabase
           .from('projects')
-          .select('id, name')
+          .select('id, name, client_id')
           .eq('id', projectId)
-          .eq('type', 'client')
           .eq('created_by', user.id)
           .maybeSingle(),
         supabase
           .from('billing_periods')
-          .select('id')
+          .select('id, client_id')
           .eq('id', billingPeriodId)
           .eq('project_id', projectId)
           .eq('created_by', user.id)
@@ -84,6 +83,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
     }
 
+    if (!project.client_id) {
+      return NextResponse.json({ error: 'Project must be linked to a client.' }, { status: 400 });
+    }
+
     if (periodError) {
       console.error('[api/billing/import-usage] billing period lookup failed', periodError);
       return NextResponse.json({ error: 'Unable to load billing period.' }, { status: 500 });
@@ -91,6 +94,10 @@ export async function POST(req: Request) {
 
     if (!period) {
       return NextResponse.json({ error: 'Billing period not found.' }, { status: 404 });
+    }
+
+    if (period.client_id && period.client_id !== project.client_id) {
+      return NextResponse.json({ error: 'Billing period does not belong to this client.' }, { status: 400 });
     }
 
     const normalizedRows = [];
@@ -149,4 +156,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
-

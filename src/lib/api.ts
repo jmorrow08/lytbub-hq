@@ -34,6 +34,9 @@ import type {
   BillingPeriod,
   UsageEvent,
   Invoice,
+  Client,
+  CreateClientData,
+  UpdateClientData,
 } from '@/types';
 
 type TaskQueryOptions = {
@@ -405,11 +408,82 @@ export const deleteHealth = async (id: string): Promise<void> => {
   if (error) throw error;
 };
 
+// Clients API
+export const getClients = async (): Promise<Client[]> => {
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('created_by', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data as Client[]) || [];
+};
+
+export const getClient = async (id: string): Promise<Client | null> => {
+  const userId = await getCurrentUserId();
+  if (!userId) return null;
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('id', id)
+    .eq('created_by', userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return (data as Client | null) ?? null;
+};
+
+export const createClient = async (payload: CreateClientData): Promise<Client> => {
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to create clients.');
+  }
+
+  const { data, error } = await supabase
+    .from('clients')
+    .insert({ ...payload, created_by: userId })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Client;
+};
+
+export const updateClient = async (
+  id: string,
+  payload: UpdateClientData
+): Promise<Client> => {
+  const { data, error } = await supabase
+    .from('clients')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Client;
+};
+
+export const deleteClient = async (id: string): Promise<void> => {
+  const { error } = await supabase.from('clients').delete().eq('id', id);
+  if (error) throw error;
+};
+
 // Billing API
-export const getBillingPeriods = async (projectId?: string): Promise<BillingPeriod[]> => {
-  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+export const getBillingPeriods = async (
+  options: { projectId?: string; clientId?: string } = {}
+): Promise<BillingPeriod[]> => {
+  const params = new URLSearchParams();
+  if (options.projectId) params.set('projectId', options.projectId);
+  if (options.clientId) params.set('clientId', options.clientId);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
   const data = await authedRequest<{ periods: BillingPeriod[] }>(
-    `/api/billing/billing-periods${query}`
+    `/api/billing/billing-periods${suffix}`
   );
   return data.periods ?? [];
 };
@@ -419,6 +493,7 @@ export const createBillingPeriod = async (payload: {
   periodStart: string;
   periodEnd: string;
   notes?: string;
+  clientId?: string;
 }): Promise<BillingPeriod> => {
   const data = await authedRequest<{ period: BillingPeriod }>(`/api/billing/billing-periods`, {
     method: 'POST',
@@ -455,9 +530,14 @@ export const importUsageCsv = async (params: {
   return data;
 };
 
-export const getInvoices = async (projectId?: string): Promise<Invoice[]> => {
-  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
-  const data = await authedRequest<{ invoices: Invoice[] }>(`/api/billing/invoices${query}`);
+export const getInvoices = async (
+  options: { projectId?: string; clientId?: string } = {}
+): Promise<Invoice[]> => {
+  const params = new URLSearchParams();
+  if (options.projectId) params.set('projectId', options.projectId);
+  if (options.clientId) params.set('clientId', options.clientId);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const data = await authedRequest<{ invoices: Invoice[] }>(`/api/billing/invoices${suffix}`);
   return data.invoices ?? [];
 };
 
@@ -631,7 +711,7 @@ export const getProjects = async (): Promise<ProjectWithChannels[]> => {
 
   const { data, error } = await supabase
     .from('projects')
-    .select('*, channels:project_channels(*)')
+    .select('*, channels:project_channels(*), client:clients(*)')
     .eq('created_by', userId)
     .order('created_at', { ascending: false });
 
@@ -647,7 +727,7 @@ export const getProject = async (id: string): Promise<ProjectWithChannels> => {
 
   const { data, error } = await supabase
     .from('projects')
-    .select('*, channels:project_channels(*)')
+    .select('*, channels:project_channels(*), client:clients(*)')
     .eq('id', id)
     .eq('created_by', userId)
     .single();
@@ -662,9 +742,15 @@ export const createProject = async (payload: CreateProjectData): Promise<Project
     throw new Error('You must be signed in to create projects.');
   }
 
+  const projectPayload = {
+    ...payload,
+    client_id: payload.client_id ?? null,
+    created_by: userId,
+  };
+
   const { data, error } = await supabase
     .from('projects')
-    .insert({ ...payload, created_by: userId })
+    .insert(projectPayload)
     .select()
     .single();
   if (error) throw error;
@@ -672,9 +758,18 @@ export const createProject = async (payload: CreateProjectData): Promise<Project
 };
 
 export const updateProject = async (id: string, payload: UpdateProjectData): Promise<Project> => {
+  const updatePayload: UpdateProjectData & { updated_at: string } = {
+    ...payload,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'client_id')) {
+    updatePayload.client_id = payload.client_id ?? null;
+  }
+
   const { data, error } = await supabase
     .from('projects')
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', id)
     .select()
     .single();
@@ -735,8 +830,8 @@ export const getClientProjects = async (): Promise<Project[]> => {
 
   const { data, error } = await supabase
     .from('projects')
-    .select('*')
-    .eq('type', 'client')
+    .select('*, client:clients(*)')
+    .not('client_id', 'is', null)
     .eq('created_by', userId)
     .order('name', { ascending: true });
 
@@ -744,16 +839,25 @@ export const getClientProjects = async (): Promise<Project[]> => {
   return (data as Project[]) || [];
 };
 
-export const getPayments = async (): Promise<Payment[]> => {
+export const getPayments = async (options: { clientId?: string; projectId?: string } = {}): Promise<Payment[]> => {
   const userId = await getCurrentUserId();
   if (!userId) return [];
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('payments')
-    .select('*, project:projects(*)')
+    .select('*, project:projects(*), client:clients(*)')
     .eq('created_by', userId)
     .order('created_at', { ascending: false })
     .limit(25);
+
+  if (options.clientId) {
+    query = query.eq('client_id', options.clientId);
+  }
+  if (options.projectId) {
+    query = query.eq('project_id', options.projectId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return (data as Payment[]) || [];

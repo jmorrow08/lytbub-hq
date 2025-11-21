@@ -9,11 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   getProjects,
   getProjectStats,
+  getClients,
   createProject,
   updateProject,
   deleteProject,
 } from '@/lib/api';
-import type { ProjectWithChannels, ProjectStats, CreateProjectData } from '@/types';
+import type { ProjectWithChannels, ProjectStats, CreateProjectData, Client } from '@/types';
 import { Plus, Edit, Trash2, FolderKanban, ExternalLink } from 'lucide-react';
 
 const projectTypes = [
@@ -39,6 +40,7 @@ const slugify = (value: string) =>
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectWithChannels[]>([]);
   const [projectStats, setProjectStats] = useState<ProjectStats[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectWithChannels | null>(null);
@@ -54,6 +56,7 @@ export default function ProjectsPage() {
     default_platform: '',
     default_handle: '',
     notes: '',
+    clientId: '',
   });
 
   const statsMap = useMemo(() => {
@@ -65,9 +68,14 @@ export default function ProjectsPage() {
   const loadProjects = async () => {
     setLoading(true);
     try {
-      const [projectData, statsData] = await Promise.all([getProjects(), getProjectStats()]);
+      const [projectData, statsData, clientData] = await Promise.all([
+        getProjects(),
+        getProjectStats(),
+        getClients(),
+      ]);
       setProjects(projectData);
       setProjectStats(statsData);
+      setClients(clientData);
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
@@ -93,6 +101,7 @@ export default function ProjectsPage() {
       default_platform: '',
       default_handle: '',
       notes: '',
+      clientId: '',
     });
   };
 
@@ -111,6 +120,7 @@ export default function ProjectsPage() {
       default_platform: formData.default_platform || undefined,
       default_handle: formData.default_handle || undefined,
       notes: formData.notes || undefined,
+      client_id: formData.clientId || undefined,
     };
 
     try {
@@ -142,6 +152,7 @@ export default function ProjectsPage() {
       default_platform: project.default_platform || '',
       default_handle: project.default_handle || '',
       notes: project.notes || '',
+      clientId: project.client_id || '',
     });
   };
 
@@ -216,6 +227,7 @@ export default function ProjectsPage() {
               default_platform: '',
               default_handle: '',
               notes: '',
+              clientId: '',
             });
           }}
           className="flex items-center space-x-2"
@@ -273,6 +285,29 @@ export default function ProjectsPage() {
                   rows={3}
                   placeholder="What is this project about?"
                 />
+              </div>
+              <div>
+                <label htmlFor="client" className="block text-sm font-medium mb-1">
+                  Client (optional)
+                </label>
+                <select
+                  id="client"
+                  value={formData.clientId}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, clientId: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                >
+                  <option value="">No client</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+                {clients.length === 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Create a client first from the Clients tab to link this project.
+                  </p>
+                )}
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
@@ -419,6 +454,11 @@ export default function ProjectsPage() {
               <CardContent className="space-y-4">
                 {project.description && (
                   <p className="text-sm text-muted-foreground">{project.description}</p>
+                )}
+                {project.client && (
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Client: <span className="text-foreground">{project.client.name}</span>
+                  </p>
                 )}
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
