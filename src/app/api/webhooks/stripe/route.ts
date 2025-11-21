@@ -110,7 +110,8 @@ async function handleInvoicePaid(
     .eq('stripe_invoice_id', stripeInvoiceId);
 
   if (error) {
-    throw new Error(`[stripe webhook] Failed to update paid invoice ${stripeInvoiceId}: ${error.message}`);
+    const detail = error.message || JSON.stringify(error);
+    throw new Error(`[stripe webhook] Failed to update paid invoice ${stripeInvoiceId}: ${detail}`);
   }
 }
 
@@ -132,7 +133,8 @@ async function handleInvoicePaymentFailed(
     .eq('stripe_invoice_id', invoice.id);
 
   if (error) {
-    throw new Error(`[stripe webhook] Failed to update failed invoice ${invoice.id}: ${error.message}`);
+    const detail = error.message || JSON.stringify(error);
+    throw new Error(`[stripe webhook] Failed to update failed invoice ${invoice.id}: ${detail}`);
   }
 }
 
