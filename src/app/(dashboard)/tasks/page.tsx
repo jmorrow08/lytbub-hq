@@ -5,11 +5,22 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getTasks, createTask, updateTask, deleteTask, getProjects } from '@/lib/api';
+import {
+  getTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  getProjects,
+  upsertPerformanceMetrics,
+  createFocusLog,
+} from '@/lib/api';
 import type { Task, CreateTaskData, ProjectWithChannels } from '@/types';
+import { useFocusMode } from '@/components/mode/FocusModeProvider';
+import { TaskCompletionModal, type CompletionDetails } from '@/components/tasks/TaskCompletionModal';
 import { CheckSquare, Plus, Trash2, Edit } from 'lucide-react';
 
 export default function TasksPage() {
+  const { focusMode } = useFocusMode();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -17,6 +28,8 @@ export default function TasksPage() {
   const [formData, setFormData] = useState({ title: '', description: '', project_id: '' });
   const [projects, setProjects] = useState<ProjectWithChannels[]>([]);
   const [projectFilter, setProjectFilter] = useState<string>('all');
+  const [completionTask, setCompletionTask] = useState<Task | null>(null);
+  const [savingCompletion, setSavingCompletion] = useState(false);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -85,13 +98,50 @@ export default function TasksPage() {
   };
 
   const handleToggleComplete = async (task: Task) => {
+    if (!task.completed) {
+      setCompletionTask(task);
+      return;
+    }
+
     try {
-      await updateTask(task.id, { completed: !task.completed });
+      await updateTask(task.id, { completed: false });
       fetchTasks();
     } catch (error) {
       console.error('Error updating task:', error);
     }
   };
+
+  const handleCompletionSubmit = async (details: CompletionDetails) => {
+    if (!completionTask) return;
+    setSavingCompletion(true);
+    try {
+      await updateTask(completionTask.id, { completed: true, focus_mode: focusMode });
+
+      if (details.mode === 'CORPORATE') {
+        await upsertPerformanceMetrics(completionTask.id, {
+          financial_impact: details.financialImpact,
+          skill_demonstrated: details.skillDemonstrated,
+          kudos_received: details.kudosReceived,
+        });
+      } else {
+        await createFocusLog({
+          task_id: completionTask.id,
+          mode: 'HOLISTIC',
+          interruption_reason: details.interruptionReason || null,
+          ai_summary: details.feeling,
+        });
+      }
+
+      fetchTasks();
+      setCompletionTask(null);
+    } catch (error) {
+      console.error('Error saving completion details:', error);
+    } finally {
+      setSavingCompletion(false);
+    }
+  };
+
+  const closeCompletionModal = () => setCompletionTask(null);
 
   const handleDelete = async (taskId: string) => {
     if (!confirm('Are you sure you want to delete this task?')) return;
@@ -351,6 +401,15 @@ export default function TasksPage() {
           </CardContent>
         </Card>
       </div>
+
+      <TaskCompletionModal
+        open={Boolean(completionTask)}
+        mode={focusMode}
+        taskTitle={completionTask?.title}
+        loading={savingCompletion}
+        onClose={closeCompletionModal}
+        onSubmit={handleCompletionSubmit}
+      />
     </div>
   );
 }

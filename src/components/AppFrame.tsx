@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { useAuth } from './auth/AuthProvider';
 import { LoginForm } from './auth/LoginForm';
 import { Navigation } from './Navigation';
+import { FocusModeProvider } from './mode/FocusModeProvider';
 
 export function AppFrame({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -25,9 +26,11 @@ export function AppFrame({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <Navigation />
-      <main className="container mx-auto px-4 py-8">{children}</main>
-    </div>
+    <FocusModeProvider>
+      <div className="min-h-screen bg-background text-foreground">
+        <Navigation />
+        <main className="container mx-auto px-4 py-8">{children}</main>
+      </div>
+    </FocusModeProvider>
   );
 }

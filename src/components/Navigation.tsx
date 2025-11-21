@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { CheckSquare, DollarSign, Video, Heart, FolderKanban, CreditCard, UserCircle } from 'lucide-react';
 import { useAuth } from './auth/AuthProvider';
 import { Button } from './ui/button';
+import { ModeToggle } from './mode/ModeToggle';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: CheckSquare },
@@ -51,6 +52,7 @@ export function Navigation() {
             </div>
           </div>
           <div className="flex items-center space-x-3">
+            <ModeToggle />
             {user && (
               <span className="hidden text-sm text-muted-foreground md:inline-flex">
                 {user.email}

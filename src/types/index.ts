@@ -23,6 +23,9 @@ export interface Project {
   ach_discount_cents?: number | null;
 }
 
+export type FocusMode = 'CORPORATE' | 'HOLISTIC';
+export type AppMode = 'LYTBUB_HQ' | 'FOCUS_PRO';
+
 export interface ProjectChannel {
   id: string;
   project_id: string;
@@ -167,6 +170,8 @@ export interface Task {
   updated_at: string;
   project_id?: string | null;
   project?: Project | null;
+  focus_mode?: FocusMode;
+  performance_metrics?: PerformanceMetrics | null;
 }
 
 export interface Revenue {
@@ -234,6 +239,7 @@ export interface CreateTaskData {
   title: string;
   description?: string;
   project_id?: string | null;
+  focus_mode?: FocusMode;
 }
 
 export interface UpdateTaskData {
@@ -241,6 +247,7 @@ export interface UpdateTaskData {
   description?: string;
   completed?: boolean;
   project_id?: string | null;
+  focus_mode?: FocusMode;
 }
 
 export interface CreateRevenueData {
@@ -333,3 +340,34 @@ export interface CreateClientData {
 }
 
 export type UpdateClientData = Partial<CreateClientData>;
+
+export interface PerformanceMetrics {
+  id: string;
+  task_id: string;
+  financial_impact?: string | null;
+  skill_demonstrated?: string | null;
+  kudos_received?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FocusLog {
+  id: string;
+  user_id: string;
+  task_id?: string | null;
+  mode: FocusMode;
+  start_time: string;
+  end_time?: string | null;
+  interruption_reason?: string | null;
+  ai_summary?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProfileSettings {
+  user_id: string;
+  timezone: string;
+  tz_last_seen_at?: string;
+  app_mode: AppMode;
+}

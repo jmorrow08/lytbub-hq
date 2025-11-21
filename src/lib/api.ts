@@ -37,6 +37,9 @@ import type {
   Client,
   CreateClientData,
   UpdateClientData,
+  PerformanceMetrics,
+  FocusLog,
+  FocusMode,
 } from '@/types';
 
 type TaskQueryOptions = {
@@ -150,7 +153,12 @@ export const createTask = async (task: CreateTaskData): Promise<Task> => {
     throw new Error('You must be signed in to create tasks.');
   }
 
-  const payload = { ...task, project_id: task.project_id || null, created_by: userId };
+  const payload = {
+    ...task,
+    project_id: task.project_id || null,
+    focus_mode: task.focus_mode || 'CORPORATE',
+    created_by: userId,
+  };
   const { data, error } = await supabase.from('tasks').insert(payload).select().single();
 
   if (error) throw error;
@@ -181,6 +189,71 @@ export const updateTask = async (id: string, updates: UpdateTaskData): Promise<T
 export const deleteTask = async (id: string): Promise<void> => {
   const { error } = await supabase.from('tasks').delete().eq('id', id);
   if (error) throw error;
+};
+
+export const upsertPerformanceMetrics = async (
+  taskId: string,
+  payload: {
+    financial_impact?: string | null;
+    skill_demonstrated?: string | null;
+    kudos_received?: string | null;
+  }
+): Promise<PerformanceMetrics> => {
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to add performance notes.');
+  }
+
+  const { data, error } = await supabase
+    .from('performance_metrics')
+    .upsert(
+      {
+        task_id: taskId,
+        created_by: userId,
+        financial_impact: payload.financial_impact || null,
+        skill_demonstrated: payload.skill_demonstrated || null,
+        kudos_received: payload.kudos_received || null,
+      },
+      { onConflict: 'task_id' }
+    )
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as PerformanceMetrics;
+};
+
+export const createFocusLog = async (payload: {
+  task_id?: string | null;
+  mode: FocusMode;
+  start_time?: string;
+  end_time?: string;
+  interruption_reason?: string | null;
+  ai_summary?: string | null;
+}): Promise<FocusLog> => {
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('You must be signed in to log focus sessions.');
+  }
+
+  const nowIso = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('focus_logs')
+    .insert({
+      user_id: userId,
+      task_id: payload.task_id || null,
+      mode: payload.mode,
+      start_time: payload.start_time || nowIso,
+      end_time: payload.end_time || payload.start_time || nowIso,
+      interruption_reason: payload.interruption_reason || null,
+      ai_summary: payload.ai_summary || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as FocusLog;
 };
 
 // Revenue API
