@@ -100,12 +100,12 @@ export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
     const unitPrice = Number(record.unit_price);
 
     if (Number.isNaN(quantity)) {
-      errors.push(`Row ${lineIndex + 1}: quantity must be a number.`);
+      errors.push(`Row ${lineIndex}: quantity must be a number.`);
       continue;
     }
 
     if (Number.isNaN(unitPrice)) {
-      errors.push(`Row ${lineIndex + 1}: unit_price must be a number.`);
+      errors.push(`Row ${lineIndex}: unit_price must be a number.`);
       continue;
     }
 
