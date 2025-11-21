@@ -31,6 +31,9 @@ import type {
   DashboardProjectSummary,
   ProjectWithChannels,
   Payment,
+  BillingPeriod,
+  UsageEvent,
+  Invoice,
 } from '@/types';
 
 type TaskQueryOptions = {
@@ -53,6 +56,53 @@ const getCurrentUserId = async (): Promise<string | null> => {
     console.warn('Unable to resolve Supabase user session', error);
     return null;
   }
+};
+
+type AuthedRequestOptions = RequestInit & { isFormData?: boolean };
+
+const authedRequest = async <T>(
+  path: string,
+  options: AuthedRequestOptions = {}
+): Promise<T> => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) {
+    throw new Error('You must be signed in to perform this action.');
+  }
+
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', `Bearer ${token}`);
+  const isFormData = options.isFormData || options.body instanceof FormData;
+  if (!isFormData && options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(path, {
+    ...options,
+    headers,
+  });
+
+  let payload: unknown = null;
+  const text = await response.text();
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      console.warn('Unable to parse API response', error);
+    }
+  }
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && payload !== null && 'error' in payload
+        ? String((payload as { error?: string }).error || 'Request failed.')
+        : 'Request failed.';
+    throw new Error(message);
+  }
+
+  return (payload as T) ?? ({} as T);
 };
 
 const fetchHealthEntryForDay = (dayKey: string, userId: string | null) => {
@@ -353,6 +403,118 @@ export const updateHealth = async (id: string, updates: UpdateHealthData): Promi
 export const deleteHealth = async (id: string): Promise<void> => {
   const { error } = await supabase.from('health').delete().eq('id', id);
   if (error) throw error;
+};
+
+// Billing API
+export const getBillingPeriods = async (projectId?: string): Promise<BillingPeriod[]> => {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  const data = await authedRequest<{ periods: BillingPeriod[] }>(
+    `/api/billing/billing-periods${query}`
+  );
+  return data.periods ?? [];
+};
+
+export const createBillingPeriod = async (payload: {
+  projectId: string;
+  periodStart: string;
+  periodEnd: string;
+  notes?: string;
+}): Promise<BillingPeriod> => {
+  const data = await authedRequest<{ period: BillingPeriod }>(`/api/billing/billing-periods`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data.period;
+};
+
+export const getUsageEvents = async (billingPeriodId: string): Promise<UsageEvent[]> => {
+  const data = await authedRequest<{ events: UsageEvent[] }>(
+    `/api/billing/usage-events?billingPeriodId=${encodeURIComponent(billingPeriodId)}`
+  );
+  return data.events ?? [];
+};
+
+export const importUsageCsv = async (params: {
+  projectId: string;
+  billingPeriodId: string;
+  file: File;
+}): Promise<{ imported: number; warnings?: string[] }> => {
+  const formData = new FormData();
+  formData.append('projectId', params.projectId);
+  formData.append('billingPeriodId', params.billingPeriodId);
+  formData.append('file', params.file);
+
+  const data = await authedRequest<{ imported: number; warnings?: string[] }>(
+    '/api/billing/import-usage',
+    {
+      method: 'POST',
+      body: formData,
+      isFormData: true,
+    }
+  );
+  return data;
+};
+
+export const getInvoices = async (projectId?: string): Promise<Invoice[]> => {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  const data = await authedRequest<{ invoices: Invoice[] }>(`/api/billing/invoices${query}`);
+  return data.invoices ?? [];
+};
+
+export const getInvoice = async (invoiceId: string): Promise<Invoice> => {
+  const data = await authedRequest<{ invoice: Invoice }>(
+    `/api/billing/invoices/${invoiceId}`
+  );
+  return data.invoice;
+};
+
+export const createDraftInvoice = async (payload: {
+  billingPeriodId: string;
+  includeProcessingFee?: boolean;
+  memo?: string;
+}): Promise<Invoice> => {
+  const data = await authedRequest<{ invoice: Invoice }>(`/api/billing/invoices/draft`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data.invoice;
+};
+
+export const finalizeInvoice = async (invoiceId: string): Promise<Invoice> => {
+  const data = await authedRequest<{ invoice: Invoice }>(
+    `/api/billing/invoices/${invoiceId}/finalize`,
+    { method: 'POST' }
+  );
+  return data.invoice;
+};
+
+export const markInvoicePaidOffline = async (
+  invoiceId: string,
+  payload: { amountCents?: number; notes?: string } = {}
+): Promise<Invoice> => {
+  const data = await authedRequest<{ invoice: Invoice }>(
+    `/api/billing/invoices/${invoiceId}/mark-paid-offline`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+  return data.invoice;
+};
+
+export const updateSubscriptionSettings = async (payload: {
+  projectId: string;
+  subscriptionEnabled?: boolean;
+  baseRetainerCents?: number | null;
+  autoPayEnabled?: boolean;
+  paymentMethodType?: 'card' | 'ach' | 'offline';
+  achDiscountCents?: number;
+}): Promise<Project> => {
+  const data = await authedRequest<{ project: Project }>(`/api/billing/subscriptions`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+  return data.project;
 };
 
 // Dashboard Stats API

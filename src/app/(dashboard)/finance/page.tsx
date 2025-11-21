@@ -176,9 +176,14 @@ export default function FinancePage() {
             Generate test-mode Stripe checkout links and keep a ledger of payments.
           </p>
         </div>
-        <div className="text-xs text-muted-foreground text-right">
-          <p className="font-medium uppercase tracking-wide">Stripe Test Mode</p>
-          <p>Use card 4242 4242 4242 4242 for mock payments.</p>
+        <div className="flex flex-col items-end gap-2 text-right">
+          <div className="text-xs text-muted-foreground">
+            <p className="font-medium uppercase tracking-wide">Stripe Test Mode</p>
+            <p>Use card 4242 4242 4242 4242 for mock payments.</p>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/billing">Open Billing Workspace</Link>
+          </Button>
         </div>
       </div>
 

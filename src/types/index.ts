@@ -12,6 +12,13 @@ export interface Project {
   created_by?: string | null;
   created_at: string;
   updated_at: string;
+  subscription_enabled?: boolean;
+  base_retainer_cents?: number | null;
+  auto_pay_enabled?: boolean;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
+  payment_method_type?: 'card' | 'ach' | 'offline';
+  ach_discount_cents?: number | null;
 }
 
 export interface ProjectChannel {
@@ -60,6 +67,74 @@ export interface CheckoutSessionResponse {
 export interface CheckoutMetadata {
   clientId: string;
   clientName: string;
+}
+
+export type BillingPeriodStatus = 'draft' | 'finalized' | 'paid';
+export type InvoiceStatus = 'draft' | 'open' | 'paid' | 'void';
+export type InvoiceLineType = 'base_subscription' | 'usage' | 'project' | 'processing_fee';
+
+export interface BillingPeriod {
+  id: string;
+  project_id: string;
+  period_start: string;
+  period_end: string;
+  status: BillingPeriodStatus;
+  notes?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface UsageEvent {
+  id: string;
+  project_id: string;
+  billing_period_id?: string | null;
+  event_date: string;
+  metric_type: string;
+  quantity: number;
+  unit_price_cents: number;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface InvoiceLineItem {
+  id: string;
+  invoice_id: string;
+  line_type: InvoiceLineType;
+  description: string;
+  quantity: number;
+  unit_price_cents: number;
+  amount_cents: number;
+  sort_order?: number;
+  metadata?: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface Invoice {
+  id: string;
+  invoice_number: string;
+  project_id: string;
+  billing_period_id?: string | null;
+  stripe_invoice_id?: string | null;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
+  subtotal_cents: number;
+  tax_cents: number;
+  processing_fee_cents: number;
+  total_cents: number;
+  net_amount_cents: number;
+  payment_method_type: 'card' | 'ach' | 'offline';
+  status: InvoiceStatus;
+  stripe_hosted_url?: string | null;
+  stripe_pdf_url?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+  updated_at?: string | null;
+  line_items?: InvoiceLineItem[];
 }
 
 export interface Task {
