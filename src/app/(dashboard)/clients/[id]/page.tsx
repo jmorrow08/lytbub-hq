@@ -1,13 +1,21 @@
 'use client';
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getClient, getClientProjects, getInvoices, getPayments } from '@/lib/api';
-import type { Client, Invoice, Payment, Project } from '@/types';
+import {
+  getBillingPeriods,
+  getClient,
+  getClientProjects,
+  getInvoices,
+  getPayments,
+  updateSubscriptionSettings,
+} from '@/lib/api';
+import type { BillingPeriod, Client, Invoice, Payment, Project } from '@/types';
+import { SubscriptionManager } from '@/components/billing/SubscriptionManager';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -28,23 +36,29 @@ export default function ClientDetailPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [billingPeriods, setBillingPeriods] = useState<BillingPeriod[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
     const load = async () => {
       setLoading(true);
       try {
-        const [clientRecord, projectList, paymentList, invoiceList] = await Promise.all([
-          getClient(clientId),
-          getClientProjects(),
-          getPayments({ clientId }),
-          getInvoices({ clientId }),
-        ]);
+        const [clientRecord, projectList, paymentList, invoiceList, periodList] =
+          await Promise.all([
+            getClient(clientId),
+            getClientProjects(),
+            getPayments({ clientId }),
+            getInvoices({ clientId }),
+            getBillingPeriods({ clientId }),
+          ]);
         setClient(clientRecord);
-        setProjects(projectList.filter((project) => project.client_id === clientId));
+        const clientProjects = projectList.filter((project) => project.client_id === clientId);
+        setProjects(clientProjects);
         setPayments(paymentList);
         setInvoices(invoiceList);
+        setBillingPeriods(periodList);
       } catch (error) {
         console.error('Error loading client details', error);
       } finally {
@@ -58,6 +72,29 @@ export default function ClientDetailPage() {
     () => Boolean(projects.length || payments.length || invoices.length),
     [projects.length, payments.length, invoices.length]
   );
+
+  const handleSubscriptionUpdate = async (
+    projectId: string,
+    updates: {
+      subscriptionEnabled?: boolean;
+      baseRetainerCents?: number | null;
+      paymentMethodType?: 'card' | 'ach' | 'offline';
+      autoPayEnabled?: boolean;
+      achDiscountCents?: number;
+    }
+  ) => {
+    if (!clientId) return;
+    setUpdatingSubscriptionId(projectId);
+    try {
+      await updateSubscriptionSettings({ projectId, ...updates });
+      const allProjects = await getClientProjects();
+      setProjects(allProjects.filter((project) => project.client_id === clientId));
+    } catch (error) {
+      console.error('Error updating subscription', error);
+    } finally {
+      setUpdatingSubscriptionId(null);
+    }
+  };
 
   if (!clientId) {
     return (
@@ -165,9 +202,53 @@ export default function ClientDetailPage() {
         </Card>
       </div>
 
-      {hasData && (
+      {/* Billing overview scoped to this client */}
+      {projects.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
+          <SubscriptionManager
+            clients={projects}
+            onUpdate={handleSubscriptionUpdate}
+            updatingId={updatingSubscriptionId}
+          />
+
           <Card>
+            <CardHeader>
+              <CardTitle>Billing Snapshot</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {projects.map((project) => (
+                <div
+                  key={project.id}
+                  className="border-b border-border/40 pb-3 last:border-0 last:pb-0"
+                >
+                  <p className="font-semibold">{project.name}</p>
+                  <p className="text-muted-foreground">
+                    Base Retainer:{' '}
+                    {currencyFormatter.format((project.base_retainer_cents ?? 0) / 100)}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Payment Method:{' '}
+                    {(project.payment_method_type || 'card').toString().toUpperCase()}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Auto-Pay: {project.auto_pay_enabled ? 'Enabled' : 'Manual'}
+                  </p>
+                </div>
+              ))}
+
+              <div className="pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Manage detailed billing periods and invoice generation from the Billing workspace.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {hasData && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
             <CardHeader>
               <CardTitle>Recent Payments</CardTitle>
             </CardHeader>
@@ -186,7 +267,9 @@ export default function ClientDetailPage() {
                   <tbody>
                     {payments.map((payment) => (
                       <tr key={payment.id} className="border-b border-border/40">
-                        <td className="py-2">{dateFormatter.format(new Date(payment.created_at))}</td>
+                        <td className="py-2">
+                          {dateFormatter.format(new Date(payment.created_at))}
+                        </td>
                         <td className="py-2">
                           {currencyFormatter.format((payment.amount_cents || 0) / 100)}
                         </td>
@@ -199,37 +282,63 @@ export default function ClientDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Invoices</CardTitle>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              {invoices.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No invoices yet.</p>
-              ) : (
-                <table className="min-w-full text-sm">
-                  <thead className="text-xs uppercase text-muted-foreground">
-                    <tr>
-                      <th className="py-2 text-left">Number</th>
-                      <th className="py-2 text-left">Total</th>
-                      <th className="py-2 text-left">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invoices.map((invoice) => (
-                      <tr key={invoice.id} className="border-b border-border/40">
-                        <td className="py-2">{invoice.invoice_number || 'Draft'}</td>
-                        <td className="py-2">
-                          {currencyFormatter.format((invoice.total_cents || 0) / 100)}
-                        </td>
-                        <td className="py-2 capitalize">{invoice.status}</td>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Invoices</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                {invoices.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No invoices yet.</p>
+                ) : (
+                  <table className="min-w-full text-sm">
+                    <thead className="text-xs uppercase text-muted-foreground">
+                      <tr>
+                        <th className="py-2 text-left">Number</th>
+                        <th className="py-2 text-left">Total</th>
+                        <th className="py-2 text-left">Status</th>
                       </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((invoice) => (
+                        <tr key={invoice.id} className="border-b border-border/40">
+                          <td className="py-2">{invoice.invoice_number || 'Draft'}</td>
+                          <td className="py-2">
+                            {currencyFormatter.format((invoice.total_cents || 0) / 100)}
+                          </td>
+                          <td className="py-2 capitalize">{invoice.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Billing Periods</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {billingPeriods.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No billing periods yet.</p>
+                ) : (
+                  <ul className="space-y-1 text-sm">
+                    {billingPeriods.map((period) => (
+                      <li key={period.id} className="flex items-center justify-between">
+                        <span>
+                          {period.period_start} → {period.period_end}
+                        </span>
+                        <span className="text-xs uppercase text-muted-foreground">
+                          {period.status}
+                        </span>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-              )}
-            </CardContent>
-          </Card>
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
     </div>
