@@ -263,7 +263,7 @@ export async function calculateTax({
   });
 }
 
-export function ensureStripeConfigured(): void {
+export async function ensureStripeConfigured(): Promise<void> {
   getStripe();
 }
 
