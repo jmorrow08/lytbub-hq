@@ -3,8 +3,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
 
-export async function GET(req: Request, { params }: { params: { invoiceId: string } }) {
+type InvoiceRouteContext = {
+  params: Promise<{ invoiceId: string }>;
+};
+
+export async function GET(req: Request, context: InvoiceRouteContext) {
   try {
+    const { invoiceId } = await context.params;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -32,7 +38,7 @@ export async function GET(req: Request, { params }: { params: { invoiceId: strin
     const { data, error } = await supabase
       .from('invoices')
       .select('*, line_items:invoice_line_items(*)')
-      .eq('id', params.invoiceId)
+      .eq('id', invoiceId)
       .eq('created_by', user.id)
       .maybeSingle();
 

@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
+type SupabaseAdminClient = SupabaseClient<any>;
 
 export async function POST(req: Request) {
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+  const supabaseAdmin: SupabaseAdminClient = createClient<any>(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
     global: { headers: { Authorization: `Bearer ${serviceRoleKey}` } },
   });
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
 async function handleInvoicePaid(
   invoice: Stripe.Invoice,
   stripe: Stripe,
-  supabaseAdmin: ReturnType<typeof createClient>
+  supabaseAdmin: SupabaseAdminClient
 ): Promise<void> {
   const stripeInvoiceId = invoice.id;
   let processingFeeCents = 0;
@@ -117,7 +118,7 @@ async function handleInvoicePaid(
 
 async function handleInvoicePaymentFailed(
   invoice: Stripe.Invoice,
-  supabaseAdmin: ReturnType<typeof createClient>
+  supabaseAdmin: SupabaseAdminClient
 ): Promise<void> {
   const attempt = invoice.attempt_count ?? 0;
   const { error } = await supabaseAdmin

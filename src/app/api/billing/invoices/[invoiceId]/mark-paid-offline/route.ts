@@ -8,11 +8,14 @@ type MarkPaidPayload = {
   notes?: string;
 };
 
-export async function POST(
-  req: Request,
-  { params }: { params: { invoiceId: string } }
-) {
+type InvoiceRouteContext = {
+  params: Promise<{ invoiceId: string }>;
+};
+
+export async function POST(req: Request, context: InvoiceRouteContext) {
   try {
+    const { invoiceId } = await context.params;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -42,7 +45,7 @@ export async function POST(
     const { data: invoice, error: invoiceError } = await supabase
       .from('invoices')
       .select('*')
-      .eq('id', params.invoiceId)
+      .eq('id', invoiceId)
       .eq('created_by', user.id)
       .maybeSingle();
 

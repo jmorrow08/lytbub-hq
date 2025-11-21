@@ -124,7 +124,6 @@ export async function createDraftInvoice({
     payment_settings:
       collectionMethod === 'charge_automatically'
         ? {
-            save_default_payment_method: 'on_subscription',
             payment_method_types: ['card', 'us_bank_account'],
           }
         : undefined,
@@ -162,11 +161,8 @@ export async function addInvoiceLineItem({
   if (priceData) {
     payload.price_data = priceData;
   } else {
-    payload.price_data = {
-      currency: 'usd',
-      product_data: { name: description },
-      unit_amount: Math.round(amountCents),
-    };
+    payload.currency = 'usd';
+    payload.unit_amount = Math.round(amountCents);
   }
 
   if (invoiceId) {
@@ -208,6 +204,16 @@ export async function setupSubscription({
   defaultPaymentMethod,
 }: SubscriptionArgs): Promise<Stripe.Subscription> {
   const stripe = getStripe();
+
+  const price = await stripe.prices.create({
+    currency: 'usd',
+    unit_amount: Math.round(amountCents),
+    recurring: { interval: 'month' },
+    product_data: {
+      name: productName,
+    },
+  });
+
   return stripe.subscriptions.create({
     customer: customerId,
     description: productName,
@@ -217,14 +223,7 @@ export async function setupSubscription({
     collection_method: 'charge_automatically',
     items: [
       {
-        price_data: {
-          currency: 'usd',
-          recurring: { interval: 'month' },
-          product_data: {
-            name: productName,
-          },
-          unit_amount: Math.round(amountCents),
-        },
+        price: price.id,
       },
     ],
     automatic_tax: { enabled: true },

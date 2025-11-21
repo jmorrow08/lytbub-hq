@@ -66,7 +66,7 @@ export async function POST(req: Request) {
     const { data: project, error: projectError } = await supabase
       .from('projects')
       .select(
-        'id, name, subscription_enabled, base_retainer_cents, payment_method_type, stripe_customer_id, stripe_subscription_id, ach_discount_cents'
+        'id, name, subscription_enabled, base_retainer_cents, payment_method_type, stripe_customer_id, stripe_subscription_id, ach_discount_cents, auto_pay_enabled'
       )
       .eq('id', period.project_id)
       .eq('created_by', user.id)
