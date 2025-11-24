@@ -90,8 +90,7 @@ export default function BillingPage() {
       await loadBillingPeriods();
       return result;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to import usage data.';
+      const message = error instanceof Error ? error.message : 'Failed to import usage data.';
       setStatus({ type: 'error', message });
       throw error;
     } finally {
@@ -116,8 +115,7 @@ export default function BillingPage() {
       setStatus({ type: 'success', message: 'Draft invoice created.' });
       await loadInvoices();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to create draft invoice.';
+      const message = error instanceof Error ? error.message : 'Unable to create draft invoice.';
       setStatus({ type: 'error', message });
       throw error;
     } finally {
@@ -137,8 +135,7 @@ export default function BillingPage() {
       setStatus({ type: 'success', message: 'Invoice finalized.' });
       await loadInvoices();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to finalize invoice.';
+      const message = error instanceof Error ? error.message : 'Unable to finalize invoice.';
       setStatus({ type: 'error', message });
     } finally {
       setFinalizingId(null);
@@ -152,8 +149,7 @@ export default function BillingPage() {
       setStatus({ type: 'success', message: 'Invoice marked as paid.' });
       await loadInvoices();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to update invoice.';
+      const message = error instanceof Error ? error.message : 'Unable to update invoice.';
       setStatus({ type: 'error', message });
     } finally {
       setMarkingId(null);
@@ -183,8 +179,7 @@ export default function BillingPage() {
       setPeriodForm({ projectId: '', periodStart: '', periodEnd: '', notes: '' });
       await loadBillingPeriods();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to create billing period.';
+      const message = error instanceof Error ? error.message : 'Unable to create billing period.';
       setStatus({ type: 'error', message });
     } finally {
       setCreatingPeriod(false);
@@ -199,7 +194,7 @@ export default function BillingPage() {
       paymentMethodType?: 'card' | 'ach' | 'offline';
       autoPayEnabled?: boolean;
       achDiscountCents?: number;
-    }
+    },
   ) => {
     setUpdatingSubscriptionId(projectId);
     try {
@@ -208,8 +203,7 @@ export default function BillingPage() {
       const refreshedClients = await getClientProjects();
       setClients(refreshedClients);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to update subscription.';
+      const message = error instanceof Error ? error.message : 'Unable to update subscription.';
       setStatus({ type: 'error', message });
       throw error;
     } finally {
@@ -218,7 +212,7 @@ export default function BillingPage() {
   };
 
   const filteredPeriods = billingPeriods.filter(
-    (period) => !selectedClientId || period.project_id === selectedClientId
+    (period) => !selectedClientId || period.project_id === selectedClientId,
   );
 
   const activeClient = clients.find((client) => client.id === selectedClientId) || null;
@@ -267,6 +261,7 @@ export default function BillingPage() {
             onUpdate={handleSubscriptionUpdate}
             updatingId={updatingSubscriptionId}
             onSelectClient={setSelectedClientId}
+            selectedProjectId={selectedClientId}
           />
 
           <Card>

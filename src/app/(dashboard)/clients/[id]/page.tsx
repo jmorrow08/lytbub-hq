@@ -45,14 +45,15 @@ export default function ClientDetailPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const [clientRecord, projectList, paymentList, invoiceList, periodList] =
-          await Promise.all([
+        const [clientRecord, projectList, paymentList, invoiceList, periodList] = await Promise.all(
+          [
             getClient(clientId),
             getClientProjects(),
             getPayments({ clientId }),
             getInvoices({ clientId }),
             getBillingPeriods({ clientId }),
-          ]);
+          ],
+        );
         setClient(clientRecord);
         const clientProjects = projectList.filter((project) => project.client_id === clientId);
         setProjects(clientProjects);
@@ -70,7 +71,7 @@ export default function ClientDetailPage() {
 
   const hasData = useMemo(
     () => Boolean(projects.length || payments.length || invoices.length),
-    [projects.length, payments.length, invoices.length]
+    [projects.length, payments.length, invoices.length],
   );
 
   const handleSubscriptionUpdate = async (
@@ -81,7 +82,7 @@ export default function ClientDetailPage() {
       paymentMethodType?: 'card' | 'ach' | 'offline';
       autoPayEnabled?: boolean;
       achDiscountCents?: number;
-    }
+    },
   ) => {
     if (!clientId) return;
     setUpdatingSubscriptionId(projectId);
@@ -143,9 +144,7 @@ export default function ClientDetailPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold">{client.name}</h1>
-            {client.company_name && (
-              <p className="text-muted-foreground">{client.company_name}</p>
-            )}
+            {client.company_name && <p className="text-muted-foreground">{client.company_name}</p>}
           </div>
         </div>
         <Button asChild variant="outline">
@@ -209,6 +208,7 @@ export default function ClientDetailPage() {
             clients={projects}
             onUpdate={handleSubscriptionUpdate}
             updatingId={updatingSubscriptionId}
+            readOnly
           />
 
           <Card>

@@ -20,6 +20,7 @@ export async function PATCH(req: Request) {
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 });
     }
+    const hasStripeSecret = Boolean(process.env.STRIPE_SECRET_KEY);
 
     const authHeader = req.headers.get('authorization');
     if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
@@ -63,7 +64,7 @@ export async function PATCH(req: Request) {
     if (!project.client_id) {
       return NextResponse.json(
         { error: 'Project must be linked to a client first.' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -116,35 +117,72 @@ export async function PATCH(req: Request) {
 
     // Ensure a Stripe customer exists when subscriptions are enabled
     if (subscriptionEnabled && !stripeCustomerId) {
-      const customer = await createOrUpdateCustomer({
-        customerId: null,
-        email: client.email,
-        name: client.name || client.company_name || undefined,
-        phone: client.phone,
-        metadata: {
-          client_id: client.id,
-          project_id: project.id,
-        },
-      });
-
-      stripeCustomerId = customer.id;
-      updates.stripe_customer_id = customer.id;
+      if (!hasStripeSecret) {
+        // Stripe not configured; skip remote call but continue persisting local settings
+        console.warn(
+          '[api/billing/subscriptions] Skipping Stripe customer creation — STRIPE_SECRET_KEY missing',
+        );
+      } else {
+        try {
+          const customer = await createOrUpdateCustomer({
+            customerId: null,
+            email: client.email,
+            name: client.name || client.company_name || undefined,
+            phone: client.phone,
+            metadata: {
+              client_id: client.id,
+              project_id: project.id,
+            },
+          });
+          stripeCustomerId = customer.id;
+          updates.stripe_customer_id = customer.id;
+        } catch (e) {
+          console.error('[api/billing/subscriptions] Stripe customer create failed', e);
+          return NextResponse.json(
+            {
+              error:
+                e instanceof Error
+                  ? e.message
+                  : 'Unable to create Stripe customer. Please check Stripe configuration.',
+            },
+            { status: 502 },
+          );
+        }
+      }
     }
 
     // Ensure a Stripe subscription exists for the base retainer
     if (subscriptionEnabled && baseRetainerCents > 0 && stripeCustomerId && !stripeSubscriptionId) {
-      const subscription = await setupSubscription({
-        customerId: stripeCustomerId,
-        amountCents: baseRetainerCents,
-        productName: `${project.name || 'Client'} Monthly Retainer`,
-        metadata: {
-          client_id: client.id,
-          project_id: project.id,
-        },
-      });
-
-      stripeSubscriptionId = subscription.id;
-      updates.stripe_subscription_id = subscription.id;
+      if (!hasStripeSecret) {
+        console.warn(
+          '[api/billing/subscriptions] Skipping Stripe subscription creation — STRIPE_SECRET_KEY missing',
+        );
+      } else {
+        try {
+          const subscription = await setupSubscription({
+            customerId: stripeCustomerId,
+            amountCents: baseRetainerCents,
+            productName: `${project.name || 'Client'} Monthly Retainer`,
+            metadata: {
+              client_id: client.id,
+              project_id: project.id,
+            },
+          });
+          stripeSubscriptionId = subscription.id;
+          updates.stripe_subscription_id = subscription.id;
+        } catch (e) {
+          console.error('[api/billing/subscriptions] Stripe subscription create failed', e);
+          return NextResponse.json(
+            {
+              error:
+                e instanceof Error
+                  ? e.message
+                  : 'Unable to create Stripe subscription. Please check Stripe configuration.',
+            },
+            { status: 502 },
+          );
+        }
+      }
     }
 
     if (Object.keys(updates).length === 0) {
@@ -160,12 +198,16 @@ export async function PATCH(req: Request) {
 
     if (updateError || !updated) {
       console.error('[api/billing/subscriptions] update failed', updateError);
-      return NextResponse.json({ error: 'Unable to update subscription settings.' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Unable to update subscription settings.' },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ project: updated });
   } catch (error) {
     console.error('[api/billing/subscriptions] unexpected error', error);
-    return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Unexpected server error.';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

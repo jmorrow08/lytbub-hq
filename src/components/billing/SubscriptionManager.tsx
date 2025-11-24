@@ -21,6 +21,8 @@ type SubscriptionManagerProps = {
   ) => Promise<void>;
   updatingId?: string | null;
   onSelectClient?: (projectId: string) => void;
+  selectedProjectId?: string;
+  readOnly?: boolean;
 };
 
 const paymentMethodOptions: Array<{ value: 'card' | 'ach' | 'offline'; label: string }> = [
@@ -37,6 +39,8 @@ export function SubscriptionManager({
   onUpdate,
   updatingId,
   onSelectClient,
+  selectedProjectId,
+  readOnly = false,
 }: SubscriptionManagerProps) {
   const [error, setError] = useState<string | null>(null);
   const [portalLoadingId, setPortalLoadingId] = useState<string | null>(null);
@@ -70,10 +74,37 @@ export function SubscriptionManager({
     }
   };
 
+  const selectedId = selectedProjectId || (clients[0]?.id ?? '');
+  const visibleClients =
+    selectedId && clients.some((c) => c.id === selectedId)
+      ? clients.filter((c) => c.id === selectedId)
+      : clients;
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Subscription &amp; Auto-Pay</CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Subscription &amp; Auto-Pay</CardTitle>
+          {onSelectClient && clients.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="subscription-client" className="text-sm text-muted-foreground">
+                Client
+              </label>
+              <select
+                id="subscription-client"
+                value={selectedId}
+                onChange={(e) => onSelectClient?.(e.target.value)}
+                className="w-56 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {error && <p className="text-sm text-red-500">{error}</p>}
@@ -83,7 +114,7 @@ export function SubscriptionManager({
           </p>
         )}
         <div className="space-y-6">
-          {clients.map((client) => {
+          {visibleClients.map((client) => {
             const achDiscount = client.ach_discount_cents ?? 500;
             const preferredMethod =
               (client.payment_method_type as 'card' | 'ach' | 'offline') || 'card';
@@ -111,6 +142,7 @@ export function SubscriptionManager({
                       name="subscription_enabled"
                       defaultChecked={Boolean(client.subscription_enabled)}
                       className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                      disabled={readOnly}
                     />
                     <label htmlFor={`subscription-${client.id}`} className="text-sm font-medium">
                       Subscription Enabled
@@ -133,6 +165,7 @@ export function SubscriptionManager({
                       min="0"
                       step="0.01"
                       defaultValue={dollars(client.base_retainer_cents)}
+                      disabled={readOnly}
                     />
                   </div>
                   <div>
@@ -147,6 +180,7 @@ export function SubscriptionManager({
                       name="payment_method_type"
                       defaultValue={preferredMethod}
                       className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      disabled={readOnly}
                     >
                       {paymentMethodOptions.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -165,6 +199,7 @@ export function SubscriptionManager({
                       name="auto_pay_enabled"
                       defaultChecked={Boolean(client.auto_pay_enabled)}
                       className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                      disabled={readOnly}
                       onChange={(event) => {
                         if (event.target.checked && onSelectClient) {
                           onSelectClient(client.id);
@@ -189,6 +224,7 @@ export function SubscriptionManager({
                       min="0"
                       step="0.01"
                       defaultValue={(achDiscount / 100).toFixed(2)}
+                      disabled={readOnly}
                     />
                   </div>
                 </div>
@@ -216,7 +252,7 @@ export function SubscriptionManager({
                 </p>
 
                 <div className="flex items-center justify-between gap-4">
-                  <Button type="submit" disabled={updatingId === client.id}>
+                  <Button type="submit" disabled={readOnly || updatingId === client.id}>
                     {updatingId === client.id ? 'Saving…' : 'Save Subscription'}
                   </Button>
                   <Button
@@ -235,7 +271,7 @@ export function SubscriptionManager({
                         setPortalLoadingId(null);
                       }
                     }}
-                    disabled={portalLoadingId === client.id}
+                    disabled={readOnly || portalLoadingId === client.id}
                   >
                     {portalLoadingId === client.id ? 'Opening…' : 'Manage Billing'}
                   </Button>
