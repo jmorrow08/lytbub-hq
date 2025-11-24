@@ -63,8 +63,10 @@ export async function POST(req: Request) {
         break;
     }
   } catch (error) {
-    console.error('[stripe webhook] handler error', event.type, error);
-    return NextResponse.json({ error: 'Webhook handler failed.' }, { status: 500 });
+    // Per Stripe best practices, ACK the event even if downstream handling fails,
+    // to avoid infinite retries. We log for observability.
+    console.error('[stripe webhook] handler error (acknowledged)', event.type, error);
+    return NextResponse.json({ received: true });
   }
 
   return NextResponse.json({ received: true });
@@ -80,10 +82,10 @@ async function handleCheckoutCompleted(
     .eq('stripe_id', session.id);
 
   if (error) {
-    const detail = error.message || JSON.stringify(error);
-    throw new Error(
-      `[stripe webhook] Failed to update payment after checkout completion for session ${session.id}: ${detail}`,
-    );
+    console.error('[stripe webhook] failed to update payment after checkout completion', {
+      sessionId: session.id,
+      error,
+    });
   }
 }
 
@@ -133,8 +135,10 @@ async function handleInvoicePaid(
     .eq('stripe_invoice_id', stripeInvoiceId);
 
   if (error) {
-    const detail = error.message || JSON.stringify(error);
-    throw new Error(`[stripe webhook] Failed to update paid invoice ${stripeInvoiceId}: ${detail}`);
+    console.error('[stripe webhook] failed to update paid invoice', {
+      stripeInvoiceId,
+      error,
+    });
   }
 }
 
@@ -156,7 +160,9 @@ async function handleInvoicePaymentFailed(
     .eq('stripe_invoice_id', invoice.id);
 
   if (error) {
-    const detail = error.message || JSON.stringify(error);
-    throw new Error(`[stripe webhook] Failed to update failed invoice ${invoice.id}: ${detail}`);
+    console.error('[stripe webhook] failed to update failed invoice', {
+      stripeInvoiceId: invoice.id,
+      error,
+    });
   }
 }
