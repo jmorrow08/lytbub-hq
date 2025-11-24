@@ -75,7 +75,8 @@ export async function POST(req: Request, context: InvoiceRouteContext) {
       description: payload.description,
       amountCents: Math.round(Number(payload.unitPriceCents) || 0),
       quantity: Number(payload.quantity ?? 1),
-      metadata: { line_type: 'project', added_manually: true },
+      // Stripe metadata values must be strings
+      metadata: { line_type: 'project', added_manually: 'true' },
     });
 
     const { error: insertError } = await supabase.from('invoice_line_items').insert({

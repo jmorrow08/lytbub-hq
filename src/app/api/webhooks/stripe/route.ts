@@ -47,16 +47,25 @@ export async function POST(req: Request) {
     global: { headers: { Authorization: `Bearer ${serviceRoleKey}` } },
   });
 
+  let ok = true;
   try {
     switch (event.type) {
       case 'checkout.session.completed':
-        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, supabaseAdmin);
+        ok =
+          (await handleCheckoutCompleted(
+            event.data.object as Stripe.Checkout.Session,
+            supabaseAdmin,
+          )) && ok;
         break;
       case 'invoice.paid':
-        await handleInvoicePaid(event.data.object as Stripe.Invoice, stripe, supabaseAdmin);
+        ok =
+          (await handleInvoicePaid(event.data.object as Stripe.Invoice, stripe, supabaseAdmin)) &&
+          ok;
         break;
       case 'invoice.payment_failed':
-        await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice, supabaseAdmin);
+        ok =
+          (await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice, supabaseAdmin)) &&
+          ok;
         break;
       default:
         // ignore unhandled events
@@ -66,16 +75,16 @@ export async function POST(req: Request) {
     // Per Stripe best practices, ACK the event even if downstream handling fails,
     // to avoid infinite retries. We log for observability.
     console.error('[stripe webhook] handler error (acknowledged)', event.type, error);
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, ok: false, error: 'handler_exception' });
   }
 
-  return NextResponse.json({ received: true });
+  return NextResponse.json({ received: true, ok });
 }
 
 async function handleCheckoutCompleted(
   session: Stripe.Checkout.Session,
   supabaseAdmin: SupabaseAdminClient,
-): Promise<void> {
+): Promise<boolean> {
   const { error } = await supabaseAdmin
     .from('payments')
     .update({ status: 'paid' })
@@ -86,14 +95,16 @@ async function handleCheckoutCompleted(
       sessionId: session.id,
       error,
     });
+    return false;
   }
+  return true;
 }
 
 async function handleInvoicePaid(
   invoice: Stripe.Invoice,
   stripe: Stripe,
   supabaseAdmin: SupabaseAdminClient,
-): Promise<void> {
+): Promise<boolean> {
   const stripeInvoiceId = invoice.id;
   let processingFeeCents = 0;
   let netAmountCents = invoice.amount_paid ?? invoice.amount_due ?? 0;
@@ -139,13 +150,15 @@ async function handleInvoicePaid(
       stripeInvoiceId,
       error,
     });
+    return false;
   }
+  return true;
 }
 
 async function handleInvoicePaymentFailed(
   invoice: Stripe.Invoice,
   supabaseAdmin: SupabaseAdminClient,
-): Promise<void> {
+): Promise<boolean> {
   const attempt = invoice.attempt_count ?? 0;
   const { error } = await supabaseAdmin
     .from('invoices')
@@ -164,5 +177,7 @@ async function handleInvoicePaymentFailed(
       stripeInvoiceId: invoice.id,
       error,
     });
+    return false;
   }
+  return true;
 }
