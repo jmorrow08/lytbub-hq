@@ -42,7 +42,7 @@ export function TaskCompletionModal({ open, mode, taskTitle, loading, onClose, o
       setFeeling('');
       setInterruptionReason('');
     }
-  }, [open, mode]);
+  }, [open]);
 
   if (!open) return null;
 

@@ -80,7 +80,10 @@ async function handleCheckoutCompleted(
     .eq('stripe_id', session.id);
 
   if (error) {
-    console.error('[stripe webhook] failed to update payment after checkout completion', error);
+    const detail = error.message || JSON.stringify(error);
+    throw new Error(
+      `[stripe webhook] Failed to update payment after checkout completion for session ${session.id}: ${detail}`,
+    );
   }
 }
 
