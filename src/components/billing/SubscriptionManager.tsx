@@ -5,6 +5,7 @@ import type { Project } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { createBillingPortalLink } from '@/lib/api';
 
 type SubscriptionManagerProps = {
   clients: Project[];
@@ -16,7 +17,7 @@ type SubscriptionManagerProps = {
       paymentMethodType?: 'card' | 'ach' | 'offline';
       autoPayEnabled?: boolean;
       achDiscountCents?: number;
-    }
+    },
   ) => Promise<void>;
   updatingId?: string | null;
   onSelectClient?: (projectId: string) => void;
@@ -38,11 +39,9 @@ export function SubscriptionManager({
   onSelectClient,
 }: SubscriptionManagerProps) {
   const [error, setError] = useState<string | null>(null);
+  const [portalLoadingId, setPortalLoadingId] = useState<string | null>(null);
 
-  const handleSubmit = async (
-    event: React.FormEvent<HTMLFormElement>,
-    projectId: string
-  ) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>, projectId: string) => {
     event.preventDefault();
     setError(null);
 
@@ -86,10 +85,11 @@ export function SubscriptionManager({
         <div className="space-y-6">
           {clients.map((client) => {
             const achDiscount = client.ach_discount_cents ?? 500;
-            const preferredMethod = (client.payment_method_type as 'card' | 'ach' | 'offline') || 'card';
+            const preferredMethod =
+              (client.payment_method_type as 'card' | 'ach' | 'offline') || 'card';
             const netAchPrice = Math.max(
               0,
-              (client.base_retainer_cents ?? 0) - (client.auto_pay_enabled ? achDiscount : 0)
+              (client.base_retainer_cents ?? 0) - (client.auto_pay_enabled ? achDiscount : 0),
             );
             return (
               <form
@@ -120,7 +120,10 @@ export function SubscriptionManager({
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium mb-1" htmlFor={`retainer-${client.id}`}>
+                    <label
+                      className="block text-sm font-medium mb-1"
+                      htmlFor={`retainer-${client.id}`}
+                    >
                       Base Retainer (USD)
                     </label>
                     <Input
@@ -133,7 +136,10 @@ export function SubscriptionManager({
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" htmlFor={`payment-${client.id}`}>
+                    <label
+                      className="block text-sm font-medium mb-1"
+                      htmlFor={`payment-${client.id}`}
+                    >
                       Preferred Payment Method
                     </label>
                     <select
@@ -170,7 +176,10 @@ export function SubscriptionManager({
                     </label>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" htmlFor={`discount-${client.id}`}>
+                    <label
+                      className="block text-sm font-medium mb-1"
+                      htmlFor={`discount-${client.id}`}
+                    >
                       ACH Discount (USD)
                     </label>
                     <Input
@@ -188,34 +197,48 @@ export function SubscriptionManager({
                   {preferredMethod === 'ach' ? (
                     <p>
                       ACH auto-pay total:{' '}
-                      <span className="font-semibold">
-                        ${(netAchPrice / 100).toFixed(2)}/month
-                      </span>{' '}
+                      <span className="font-semibold">${(netAchPrice / 100).toFixed(2)}/month</span>{' '}
                       (saves ${(achDiscount / 100).toFixed(2)} per month)
                     </p>
                   ) : preferredMethod === 'card' ? (
                     <p>
-                      Card payments show a processing fee line item. Switch to ACH auto-pay to reduce
-                      fees and offer a discount.
+                      Card payments show a processing fee line item. Switch to ACH auto-pay to
+                      reduce fees and offer a discount.
                     </p>
                   ) : (
                     <p>Offline payments will not include processing fees.</p>
                   )}
                 </div>
 
+                <p className="text-xs text-muted-foreground">
+                  “Manage Billing” opens Stripe’s secure customer portal where your client can add
+                  or update card/ACH details and view past invoices.
+                </p>
+
                 <div className="flex items-center justify-between gap-4">
                   <Button type="submit" disabled={updatingId === client.id}>
                     {updatingId === client.id ? 'Saving…' : 'Save Subscription'}
                   </Button>
-                  {onSelectClient && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => onSelectClient(client.id)}
-                    >
-                      Manage Billing
-                    </Button>
-                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        setPortalLoadingId(client.id);
+                        const { url } = await createBillingPortalLink(client.id);
+                        if (typeof window !== 'undefined') {
+                          window.location.href = url;
+                        }
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : 'Unable to open billing portal.');
+                      } finally {
+                        setPortalLoadingId(null);
+                      }
+                    }}
+                    disabled={portalLoadingId === client.id}
+                  >
+                    {portalLoadingId === client.id ? 'Opening…' : 'Manage Billing'}
+                  </Button>
                 </div>
               </form>
             );
@@ -225,4 +248,3 @@ export function SubscriptionManager({
     </Card>
   );
 }
-

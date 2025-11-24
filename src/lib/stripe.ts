@@ -35,9 +35,7 @@ type CustomerPayload = {
   taxId?: string | null;
 };
 
-export async function createOrUpdateCustomer(
-  payload: CustomerPayload
-): Promise<Stripe.Customer> {
+export async function createOrUpdateCustomer(payload: CustomerPayload): Promise<Stripe.Customer> {
   const stripe = getStripe();
   const derivedMetadata = {
     ...(payload.metadata || {}),
@@ -174,7 +172,7 @@ export async function addInvoiceLineItem({
 
 export async function finalizeAndSendInvoice(
   invoiceId: string,
-  { sendImmediately = true }: { sendImmediately?: boolean } = {}
+  { sendImmediately = true }: { sendImmediately?: boolean } = {},
 ): Promise<Stripe.Invoice> {
   const stripe = getStripe();
   const finalized = await stripe.invoices.finalizeInvoice(invoiceId, { auto_advance: true });
@@ -266,3 +264,22 @@ export async function ensureStripeConfigured(): Promise<void> {
   getStripe();
 }
 
+/**
+ * Creates a Stripe Billing Portal session for a given customer.
+ */
+export async function createBillingPortalSession({
+  customerId,
+  returnUrl,
+  configurationId,
+}: {
+  customerId: string;
+  returnUrl: string;
+  configurationId?: string;
+}): Promise<Stripe.BillingPortal.Session> {
+  const stripe = getStripe();
+  return stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: returnUrl,
+    configuration: configurationId,
+  });
+}

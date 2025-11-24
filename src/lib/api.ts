@@ -66,10 +66,7 @@ const getCurrentUserId = async (): Promise<string | null> => {
 
 type AuthedRequestOptions = RequestInit & { isFormData?: boolean };
 
-const authedRequest = async <T>(
-  path: string,
-  options: AuthedRequestOptions = {}
-): Promise<T> => {
+const authedRequest = async <T>(path: string, options: AuthedRequestOptions = {}): Promise<T> => {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -197,7 +194,7 @@ export const upsertPerformanceMetrics = async (
     financial_impact?: string | null;
     skill_demonstrated?: string | null;
     kudos_received?: string | null;
-  }
+  },
 ): Promise<PerformanceMetrics> => {
   const userId = await getCurrentUserId();
   if (!userId) {
@@ -214,7 +211,7 @@ export const upsertPerformanceMetrics = async (
         skill_demonstrated: payload.skill_demonstrated || null,
         kudos_received: payload.kudos_received || null,
       },
-      { onConflict: 'task_id' }
+      { onConflict: 'task_id' },
     )
     .select()
     .single();
@@ -454,11 +451,7 @@ export const createOrUpdateHealth = async (health: CreateHealthData): Promise<He
     return data as Health;
   }
 
-  const { data, error } = await supabase
-    .from('health')
-    .insert(payload)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('health').insert(payload).select().single();
 
   if (error) throw error;
   return data as Health;
@@ -527,10 +520,7 @@ export const createClient = async (payload: CreateClientData): Promise<Client> =
   return data as Client;
 };
 
-export const updateClient = async (
-  id: string,
-  payload: UpdateClientData
-): Promise<Client> => {
+export const updateClient = async (id: string, payload: UpdateClientData): Promise<Client> => {
   const { data, error } = await supabase
     .from('clients')
     .update({ ...payload, updated_at: new Date().toISOString() })
@@ -549,14 +539,14 @@ export const deleteClient = async (id: string): Promise<void> => {
 
 // Billing API
 export const getBillingPeriods = async (
-  options: { projectId?: string; clientId?: string } = {}
+  options: { projectId?: string; clientId?: string } = {},
 ): Promise<BillingPeriod[]> => {
   const params = new URLSearchParams();
   if (options.projectId) params.set('projectId', options.projectId);
   if (options.clientId) params.set('clientId', options.clientId);
   const suffix = params.toString() ? `?${params.toString()}` : '';
   const data = await authedRequest<{ periods: BillingPeriod[] }>(
-    `/api/billing/billing-periods${suffix}`
+    `/api/billing/billing-periods${suffix}`,
   );
   return data.periods ?? [];
 };
@@ -577,7 +567,7 @@ export const createBillingPeriod = async (payload: {
 
 export const getUsageEvents = async (billingPeriodId: string): Promise<UsageEvent[]> => {
   const data = await authedRequest<{ events: UsageEvent[] }>(
-    `/api/billing/usage-events?billingPeriodId=${encodeURIComponent(billingPeriodId)}`
+    `/api/billing/usage-events?billingPeriodId=${encodeURIComponent(billingPeriodId)}`,
   );
   return data.events ?? [];
 };
@@ -598,13 +588,13 @@ export const importUsageCsv = async (params: {
       method: 'POST',
       body: formData,
       isFormData: true,
-    }
+    },
   );
   return data;
 };
 
 export const getInvoices = async (
-  options: { projectId?: string; clientId?: string } = {}
+  options: { projectId?: string; clientId?: string } = {},
 ): Promise<Invoice[]> => {
   const params = new URLSearchParams();
   if (options.projectId) params.set('projectId', options.projectId);
@@ -615,9 +605,7 @@ export const getInvoices = async (
 };
 
 export const getInvoice = async (invoiceId: string): Promise<Invoice> => {
-  const data = await authedRequest<{ invoice: Invoice }>(
-    `/api/billing/invoices/${invoiceId}`
-  );
+  const data = await authedRequest<{ invoice: Invoice }>(`/api/billing/invoices/${invoiceId}`);
   return data.invoice;
 };
 
@@ -636,23 +624,34 @@ export const createDraftInvoice = async (payload: {
 export const finalizeInvoice = async (invoiceId: string): Promise<Invoice> => {
   const data = await authedRequest<{ invoice: Invoice }>(
     `/api/billing/invoices/${invoiceId}/finalize`,
-    { method: 'POST' }
+    { method: 'POST' },
   );
   return data.invoice;
 };
 
 export const markInvoicePaidOffline = async (
   invoiceId: string,
-  payload: { amountCents?: number; notes?: string } = {}
+  payload: { amountCents?: number; notes?: string } = {},
 ): Promise<Invoice> => {
   const data = await authedRequest<{ invoice: Invoice }>(
     `/api/billing/invoices/${invoiceId}/mark-paid-offline`,
     {
       method: 'POST',
       body: JSON.stringify(payload),
-    }
+    },
   );
   return data.invoice;
+};
+
+export const createBillingPortalLink = async (
+  projectId: string,
+  returnUrl?: string,
+): Promise<{ url: string }> => {
+  const data = await authedRequest<{ url: string }>(`/api/billing/portal`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, returnUrl }),
+  });
+  return data;
 };
 
 export const updateSubscriptionSettings = async (payload: {
@@ -821,11 +820,7 @@ export const createProject = async (payload: CreateProjectData): Promise<Project
     created_by: userId,
   };
 
-  const { data, error } = await supabase
-    .from('projects')
-    .insert(projectPayload)
-    .select()
-    .single();
+  const { data, error } = await supabase.from('projects').insert(projectPayload).select().single();
   if (error) throw error;
   return data as Project;
 };
@@ -866,7 +861,7 @@ export const getProjectStats = async (): Promise<ProjectStats[]> => {
 };
 
 export const createProjectChannel = async (
-  payload: CreateProjectChannelData
+  payload: CreateProjectChannelData,
 ): Promise<ProjectChannel> => {
   const { data, error } = await supabase.from('project_channels').insert(payload).select().single();
 
@@ -876,7 +871,7 @@ export const createProjectChannel = async (
 
 export const updateProjectChannel = async (
   id: string,
-  payload: UpdateProjectChannelData
+  payload: UpdateProjectChannelData,
 ): Promise<ProjectChannel> => {
   const { data, error } = await supabase
     .from('project_channels')
@@ -912,7 +907,9 @@ export const getClientProjects = async (): Promise<Project[]> => {
   return (data as Project[]) || [];
 };
 
-export const getPayments = async (options: { clientId?: string; projectId?: string } = {}): Promise<Payment[]> => {
+export const getPayments = async (
+  options: { clientId?: string; projectId?: string } = {},
+): Promise<Payment[]> => {
   const userId = await getCurrentUserId();
   if (!userId) return [];
 

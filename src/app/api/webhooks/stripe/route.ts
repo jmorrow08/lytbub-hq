@@ -20,7 +20,10 @@ export async function POST(req: Request) {
 
   if (!supabaseUrl || !serviceRoleKey) {
     console.error('[stripe webhook] missing Supabase service credentials');
-    return NextResponse.json({ error: 'Supabase service role is not configured.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Supabase service role is not configured.' },
+      { status: 500 },
+    );
   }
 
   const rawBody = await req.text();
@@ -46,6 +49,9 @@ export async function POST(req: Request) {
 
   try {
     switch (event.type) {
+      case 'checkout.session.completed':
+        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, supabaseAdmin);
+        break;
       case 'invoice.paid':
         await handleInvoicePaid(event.data.object as Stripe.Invoice, stripe, supabaseAdmin);
         break;
@@ -64,10 +70,24 @@ export async function POST(req: Request) {
   return NextResponse.json({ received: true });
 }
 
+async function handleCheckoutCompleted(
+  session: Stripe.Checkout.Session,
+  supabaseAdmin: SupabaseAdminClient,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('payments')
+    .update({ status: 'paid' })
+    .eq('stripe_id', session.id);
+
+  if (error) {
+    console.error('[stripe webhook] failed to update payment after checkout completion', error);
+  }
+}
+
 async function handleInvoicePaid(
   invoice: Stripe.Invoice,
   stripe: Stripe,
-  supabaseAdmin: SupabaseAdminClient
+  supabaseAdmin: SupabaseAdminClient,
 ): Promise<void> {
   const stripeInvoiceId = invoice.id;
   let processingFeeCents = 0;
@@ -88,8 +108,7 @@ async function handleInvoicePaid(
     }
   }
 
-  const taxCents =
-    invoice.total_tax_amounts?.reduce((sum, tax) => sum + (tax.amount ?? 0), 0) ?? 0;
+  const taxCents = invoice.total_tax_amounts?.reduce((sum, tax) => sum + (tax.amount ?? 0), 0) ?? 0;
 
   const { error } = await supabaseAdmin
     .from('invoices')
@@ -118,7 +137,7 @@ async function handleInvoicePaid(
 
 async function handleInvoicePaymentFailed(
   invoice: Stripe.Invoice,
-  supabaseAdmin: SupabaseAdminClient
+  supabaseAdmin: SupabaseAdminClient,
 ): Promise<void> {
   const attempt = invoice.attempt_count ?? 0;
   const { error } = await supabaseAdmin
@@ -138,4 +157,3 @@ async function handleInvoicePaymentFailed(
     throw new Error(`[stripe webhook] Failed to update failed invoice ${invoice.id}: ${detail}`);
   }
 }
-
