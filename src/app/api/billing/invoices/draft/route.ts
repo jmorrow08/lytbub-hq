@@ -13,6 +13,11 @@ type DraftInvoicePayload = {
   billingPeriodId: string;
   includeProcessingFee?: boolean;
   memo?: string;
+  manualLines?: Array<{
+    description: string;
+    quantity?: number;
+    unitPriceCents: number;
+  }>;
 };
 
 export async function POST(req: Request) {
@@ -66,7 +71,7 @@ export async function POST(req: Request) {
     const { data: project, error: projectError } = await supabase
       .from('projects')
       .select(
-        'id, name, subscription_enabled, base_retainer_cents, payment_method_type, stripe_customer_id, stripe_subscription_id, ach_discount_cents, auto_pay_enabled, client_id'
+        'id, name, subscription_enabled, base_retainer_cents, payment_method_type, stripe_customer_id, stripe_subscription_id, ach_discount_cents, auto_pay_enabled, client_id',
       )
       .eq('id', period.project_id)
       .eq('created_by', user.id)
@@ -84,7 +89,7 @@ export async function POST(req: Request) {
     if (!project.stripe_customer_id) {
       return NextResponse.json(
         { error: 'Client is missing a Stripe customer. Configure subscription first.' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -148,26 +153,42 @@ export async function POST(req: Request) {
       }
     }
 
+    // Include any manual lines from the request (positive or negative amounts allowed)
+    if (Array.isArray(payload.manualLines)) {
+      for (const line of payload.manualLines) {
+        const qty = Number(line.quantity ?? 1);
+        const unit = Math.round(Number(line.unitPriceCents) || 0);
+        if (!line.description || !Number.isFinite(qty) || !Number.isFinite(unit)) continue;
+        baseLines.push({
+          lineType: 'project',
+          description: line.description,
+          quantity: qty,
+          unitPriceCents: unit,
+        });
+      }
+    }
+
     if (baseLines.length === 0) {
       return NextResponse.json(
         { error: 'No line items available for this billing period.' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const paymentMethodType =
-      (project.payment_method_type as PaymentMethodType | null) ?? 'card';
+    const paymentMethodType = (project.payment_method_type as PaymentMethodType | null) ?? 'card';
 
-    const showProcessingFeeLine =
-      payload.includeProcessingFee ?? paymentMethodType === 'card';
+    const showProcessingFeeLine = payload.includeProcessingFee ?? paymentMethodType === 'card';
 
-    const { lines: calculatedLines, subtotalCents, totalCents } =
-      applyPaymentMethodAdjustments(baseLines, {
-        paymentMethodType,
-        autoPayEnabled: Boolean(project.auto_pay_enabled),
-        achDiscountCents: project.ach_discount_cents ?? undefined,
-        showProcessingFeeLine,
-      });
+    const {
+      lines: calculatedLines,
+      subtotalCents,
+      totalCents,
+    } = applyPaymentMethodAdjustments(baseLines, {
+      paymentMethodType,
+      autoPayEnabled: Boolean(project.auto_pay_enabled),
+      achDiscountCents: project.ach_discount_cents ?? undefined,
+      showProcessingFeeLine,
+    });
 
     const description = `Services ${period.period_start} → ${period.period_end}`;
 
@@ -257,7 +278,10 @@ export async function POST(req: Request) {
 
     if (fetchLineItemsError) {
       console.error('[api/billing/invoices/draft] unable to load line items', fetchLineItemsError);
-      return NextResponse.json({ error: 'Invoice created, but line items missing.' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Invoice created, but line items missing.' },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({

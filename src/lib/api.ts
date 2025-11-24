@@ -613,6 +613,7 @@ export const createDraftInvoice = async (payload: {
   billingPeriodId: string;
   includeProcessingFee?: boolean;
   memo?: string;
+  manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
 }): Promise<Invoice> => {
   const data = await authedRequest<{ invoice: Invoice }>(`/api/billing/invoices/draft`, {
     method: 'POST',
@@ -641,6 +642,26 @@ export const markInvoicePaidOffline = async (
     },
   );
   return data.invoice;
+};
+
+export const addDraftInvoiceLineItem = async (
+  invoiceId: string,
+  payload: { description: string; quantity?: number; unitPriceCents: number },
+): Promise<Invoice> => {
+  const data = await authedRequest<{ invoice: Invoice }>(
+    `/api/billing/invoices/${invoiceId}/add-line-item`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  );
+  return data.invoice;
+};
+
+export const deleteDraftInvoice = async (invoiceId: string): Promise<void> => {
+  await authedRequest(`/api/billing/invoices/${invoiceId}/delete`, {
+    method: 'DELETE',
+  });
 };
 
 export const createBillingPortalLink = async (

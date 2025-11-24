@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import type { Invoice } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { deleteDraftInvoice } from '@/lib/api';
 
 type InvoiceListProps = {
   invoices: Invoice[];
@@ -26,7 +27,7 @@ export function InvoiceList({
 }: InvoiceListProps) {
   const sortedInvoices = useMemo(
     () => [...invoices].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
-    [invoices]
+    [invoices],
   );
 
   const handleFinalize = async (invoiceId: string) => {
@@ -44,7 +45,9 @@ export function InvoiceList({
       </CardHeader>
       <CardContent className="space-y-4">
         {sortedInvoices.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No invoices yet. Generate a draft to begin.</p>
+          <p className="text-sm text-muted-foreground">
+            No invoices yet. Generate a draft to begin.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -67,8 +70,12 @@ export function InvoiceList({
                         {new Date(invoice.created_at).toLocaleString()}
                       </div>
                     </td>
-                    <td className="py-3">{clientLookup?.[invoice.project_id] ?? invoice.project_id}</td>
-                    <td className="py-3 font-semibold">{currency.format(invoice.total_cents / 100)}</td>
+                    <td className="py-3">
+                      {clientLookup?.[invoice.project_id] ?? invoice.project_id}
+                    </td>
+                    <td className="py-3 font-semibold">
+                      {currency.format(invoice.total_cents / 100)}
+                    </td>
                     <td className="py-3 capitalize">
                       <StatusBadge status={invoice.status} />
                     </td>
@@ -100,6 +107,27 @@ export function InvoiceList({
                             >
                               {markingId === invoice.id ? 'Marking…' : 'Mark Paid (Offline)'}
                             </Button>
+                            {invoice.status === 'draft' && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={async () => {
+                                  if (typeof window !== 'undefined') {
+                                    const yes = window.confirm(
+                                      'Delete this draft invoice? This cannot be undone.',
+                                    );
+                                    if (!yes) return;
+                                  }
+                                  try {
+                                    await deleteDraftInvoice(invoice.id);
+                                  } catch {
+                                    // ignoring here; parent may refresh list elsewhere
+                                  }
+                                }}
+                              >
+                                Delete
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>
@@ -128,4 +156,3 @@ function StatusBadge({ status }: { status: Invoice['status'] }) {
     </span>
   );
 }
-
