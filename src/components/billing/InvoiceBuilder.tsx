@@ -13,6 +13,7 @@ type InvoiceBuilderProps = {
     billingPeriodId: string;
     includeProcessingFee: boolean;
     memo?: string;
+    manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
   }) => Promise<void>;
   generating: boolean;
   draftInvoice?: Invoice | null;
