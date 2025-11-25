@@ -8,7 +8,11 @@ import {
   DraftLine,
   PaymentMethodType,
 } from '@/lib/billing-calculator';
-import { mapPendingToLineType, toNumber } from '@/lib/billing/quickInvoiceUtils';
+import {
+  generateInvoiceNumber,
+  mapPendingToLineType,
+  toNumber,
+} from '@/lib/billing/quickInvoiceUtils';
 
 type DraftInvoicePayload = {
   billingPeriodId: string;
@@ -427,12 +431,4 @@ export async function POST(req: Request) {
     console.error('[api/billing/invoices/draft] unexpected error', error);
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
-}
-
-function generateInvoiceNumber(periodStart: string): string {
-  const date = new Date(periodStart);
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `INV-${year}${month}-${randomSuffix}`;
 }

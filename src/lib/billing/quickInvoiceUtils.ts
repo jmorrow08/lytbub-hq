@@ -38,11 +38,40 @@ export function mapPendingToLineType(sourceType: string | null | undefined): Dra
   }
 }
 
-export function generateInvoiceNumber(): string {
-  const date = new Date();
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `INV-${year}${month}-${randomSuffix}`;
+function createRandomSuffix(length: number): string {
+  const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const cryptoObj = globalThis.crypto as Crypto | undefined;
+
+  if (cryptoObj?.getRandomValues) {
+    const bytes = cryptoObj.getRandomValues(new Uint8Array(length));
+    let suffix = '';
+    for (const byte of bytes) {
+      suffix += alphabet.charAt(byte % alphabet.length);
+    }
+    return suffix;
+  }
+
+  if (typeof cryptoObj?.randomUUID === 'function') {
+    return cryptoObj.randomUUID().replace(/-/g, '').slice(0, length).toUpperCase();
+  }
+
+  let fallback = '';
+  while (fallback.length < length) {
+    fallback += Math.random().toString(36).slice(2).toUpperCase();
+  }
+  return fallback.slice(0, length);
 }
 
+export function generateInvoiceNumber(referenceDate?: Date | string): string {
+  const date =
+    referenceDate instanceof Date
+      ? referenceDate
+      : referenceDate
+      ? new Date(referenceDate)
+      : new Date();
+  const validDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const year = validDate.getUTCFullYear();
+  const month = String(validDate.getUTCMonth() + 1).padStart(2, '0');
+  const randomSuffix = createRandomSuffix(4);
+  return `INV-${year}${month}-${randomSuffix}`;
+}
