@@ -55,7 +55,12 @@ export function PendingItemsTable({
     return selectedIds
       .map((id) => items.find((item) => item.id === id))
       .filter((item): item is PendingInvoiceItem => Boolean(item))
-      .reduce((sum, item) => sum + (item.amount_cents ?? item.unit_price_cents), 0);
+      .reduce((sum, item) => {
+        const calculatedAmount =
+          item.amount_cents ??
+          Math.round((Number(item.quantity ?? 1) || 1) * (item.unit_price_cents ?? 0));
+        return sum + calculatedAmount;
+      }, 0);
   }, [items, selectedIds]);
 
   const handleToggleSelect = (itemId: string) => {
@@ -131,8 +136,11 @@ export function PendingItemsTable({
     try {
       await updatePendingInvoiceItem(itemId, { status: 'voided' });
       await onRefresh();
-      setSelectedIds((prev) => prev.filter((id) => id !== itemId));
-      onSelectionChange?.(selectedIds.filter((id) => id !== itemId));
+      setSelectedIds((prev) => {
+        const next = prev.filter((id) => id !== itemId);
+        onSelectionChange?.(next);
+        return next;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to void pending item.');
     } finally {

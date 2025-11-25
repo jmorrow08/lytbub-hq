@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
+import type { PendingInvoiceItem } from '@/types';
 import {
   applyPaymentMethodAdjustments,
   type DraftLine,
@@ -76,10 +77,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'projectId is required.' }, { status: 400 });
     }
 
-    if (pendingItemIds.length === 0) {
-      return NextResponse.json({ error: 'Select at least one pending item.' }, { status: 400 });
-    }
-
     const includeRetainer = Boolean(payload.includeRetainer);
     const finalizeNow = payload.finalize !== false;
 
@@ -110,6 +107,15 @@ export async function POST(req: Request) {
       );
     }
 
+    const projectRetainerCents = Number(project.base_retainer_cents) || 0;
+    const canInvoiceRetainerOnly = includeRetainer && projectRetainerCents > 0;
+    if (pendingItemIds.length === 0 && !canInvoiceRetainerOnly) {
+      const message = includeRetainer
+        ? 'Select at least one pending item or configure a retainer for this project.'
+        : 'Select at least one pending item.';
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
     let clientId: string | null = payload.clientId ?? project.client_id ?? null;
     if (!clientId) {
       return NextResponse.json(
@@ -135,23 +141,28 @@ export async function POST(req: Request) {
       clientId = client.id;
     }
 
-    const { data: pendingItems, error: pendingError } = await supabase
-      .from('pending_invoice_items')
-      .select('*')
-      .in('id', pendingItemIds)
-      .eq('created_by', user.id)
-      .eq('status', 'pending');
+    let pendingItems: PendingInvoiceItem[] = [];
+    if (pendingItemIds.length > 0) {
+      const { data: fetchedPendingItems, error: pendingError } = await supabase
+        .from('pending_invoice_items')
+        .select('*')
+        .in('id', pendingItemIds)
+        .eq('created_by', user.id)
+        .eq('status', 'pending');
 
-    if (pendingError) {
-      console.error('[api/billing/quick-invoice] pending lookup failed', pendingError);
-      return NextResponse.json({ error: 'Unable to load pending items.' }, { status: 500 });
-    }
+      if (pendingError) {
+        console.error('[api/billing/quick-invoice] pending lookup failed', pendingError);
+        return NextResponse.json({ error: 'Unable to load pending items.' }, { status: 500 });
+      }
 
-    if (!pendingItems || pendingItems.length !== pendingItemIds.length) {
-      return NextResponse.json(
-        { error: 'One or more pending items were not found or already billed.' },
-        { status: 400 },
-      );
+      if (!fetchedPendingItems || fetchedPendingItems.length !== pendingItemIds.length) {
+        return NextResponse.json(
+          { error: 'One or more pending items were not found or already billed.' },
+          { status: 400 },
+        );
+      }
+
+      pendingItems = fetchedPendingItems;
     }
 
     const invalidProjectItem = pendingItems.find((item) => item.project_id !== project.id);
@@ -193,17 +204,14 @@ export async function POST(req: Request) {
         : { ymd: null, unix: null };
 
     const baseLines: DraftLine[] = [];
-    if (includeRetainer) {
-      const retainerCents = Number(project.base_retainer_cents) || 0;
-      if (retainerCents > 0) {
-        baseLines.push({
-          lineType: 'base_subscription',
-          description: `${project.name ?? 'Client'} Monthly Retainer`,
-          quantity: 1,
-          unitPriceCents: retainerCents,
-          metadata: { source: 'retainer' },
-        });
-      }
+    if (includeRetainer && projectRetainerCents > 0) {
+      baseLines.push({
+        lineType: 'base_subscription',
+        description: `${project.name ?? 'Client'} Monthly Retainer`,
+        quantity: 1,
+        unitPriceCents: projectRetainerCents,
+        metadata: { source: 'retainer' },
+      });
     }
 
     pendingItems.forEach((item) => {
@@ -238,9 +246,18 @@ export async function POST(req: Request) {
       showProcessingFeeLine: true,
     });
 
+    const descriptorParts: string[] = [];
+    if (pendingItems.length > 0) {
+      descriptorParts.push(
+        `${pendingItems.length} pending item${pendingItems.length === 1 ? '' : 's'}`,
+      );
+    }
+    if (includeRetainer && projectRetainerCents > 0) {
+      descriptorParts.push('retainer');
+    }
     const description = `Quick invoice for ${project.name ?? 'Client'} (${
-      pendingItems.length
-    } item${pendingItems.length === 1 ? '' : 's'})`;
+      descriptorParts.length > 0 ? descriptorParts.join(' + ') : 'retainer'
+    })`;
 
     const stripeInvoice = await createDraftInvoice({
       customerId: project.stripe_customer_id,
