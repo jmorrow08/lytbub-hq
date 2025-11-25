@@ -26,8 +26,8 @@ function getStripe(): Stripe {
 }
 
 function getAllowedPaymentMethodTypes():
-  | Stripe.InvoiceCreateParams.PaymentSettings.PaymentMethodTypes[]
-  | Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodTypes[] {
+  | Stripe.InvoiceCreateParams.PaymentSettings.PaymentMethodType[]
+  | Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodType[] {
   const raw =
     process.env.STRIPE_PAYMENT_METHOD_TYPES ||
     process.env.NEXT_PUBLIC_STRIPE_PAYMENT_METHOD_TYPES ||
@@ -123,7 +123,7 @@ export async function createDraftInvoice({
 }: DraftInvoiceArgs): Promise<Stripe.Invoice> {
   const stripe = getStripe();
   const paymentMethodTypes = getAllowedPaymentMethodTypes() as
-    | Stripe.InvoiceCreateParams.PaymentSettings.PaymentMethodTypes[]
+    | Stripe.InvoiceCreateParams.PaymentSettings.PaymentMethodType[]
     | undefined;
   return stripe.invoices.create({
     customer: customerId,
@@ -220,9 +220,12 @@ export async function setupSubscription({
   defaultPaymentMethod,
 }: SubscriptionArgs): Promise<Stripe.Subscription> {
   const stripe = getStripe();
-  const paymentMethodTypes = (getAllowedPaymentMethodTypes() as
-    | Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodTypes[]
-    | undefined) || ['card', 'us_bank_account'];
+  const paymentMethodTypes = ((getAllowedPaymentMethodTypes() as
+    | Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodType[]
+    | undefined) || [
+    'card',
+    'us_bank_account',
+  ]) as Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodType[];
 
   const price = await stripe.prices.create({
     currency: 'usd',
