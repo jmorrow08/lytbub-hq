@@ -612,6 +612,7 @@ export const getInvoice = async (invoiceId: string): Promise<Invoice> => {
 export const createDraftInvoice = async (payload: {
   billingPeriodId: string;
   includeProcessingFee?: boolean;
+  includeRetainer?: boolean;
   memo?: string;
   manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
   collectionMethod?: 'charge_automatically' | 'send_invoice';

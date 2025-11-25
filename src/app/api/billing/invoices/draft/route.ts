@@ -12,6 +12,7 @@ import {
 type DraftInvoicePayload = {
   billingPeriodId: string;
   includeProcessingFee?: boolean;
+  includeRetainer?: boolean;
   memo?: string;
   manualLines?: Array<{
     description: string;
@@ -113,8 +114,10 @@ export async function POST(req: Request) {
     }
 
     const baseLines: DraftLine[] = [];
+    const includeBaseRetainer =
+      Boolean(payload.includeRetainer) && Number(project.base_retainer_cents) > 0;
 
-    if (project.subscription_enabled && Number(project.base_retainer_cents) > 0) {
+    if (includeBaseRetainer) {
       baseLines.push({
         lineType: 'base_subscription',
         description: `${project.name || 'Client'} Monthly Retainer`,
@@ -230,13 +233,14 @@ export async function POST(req: Request) {
 
     const stripeInvoice = await createDraftInvoice({
       customerId: project.stripe_customer_id,
-      subscriptionId: project.stripe_subscription_id || undefined,
+      subscriptionId: includeBaseRetainer ? project.stripe_subscription_id || undefined : undefined,
       collectionMethod,
       dueDate: dueDateUnix,
       description,
       metadata: {
         billing_period_id: period.id,
         project_id: project.id,
+        include_retainer: includeBaseRetainer ? 'true' : 'false',
       },
     });
 

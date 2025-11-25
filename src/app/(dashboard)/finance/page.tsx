@@ -371,7 +371,11 @@ export default function FinancePage() {
   const handleGenerateInvoice = async (params: {
     billingPeriodId: string;
     includeProcessingFee: boolean;
+    includeRetainer?: boolean;
     memo?: string;
+    manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
+    collectionMethod?: 'charge_automatically' | 'send_invoice';
+    dueDate?: string;
   }) => {
     setInvoiceGenerating(true);
     try {

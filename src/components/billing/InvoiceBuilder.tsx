@@ -12,6 +12,7 @@ type InvoiceBuilderProps = {
   onGenerate: (params: {
     billingPeriodId: string;
     includeProcessingFee: boolean;
+    includeRetainer?: boolean;
     memo?: string;
     manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
     collectionMethod?: 'charge_automatically' | 'send_invoice';
@@ -31,6 +32,7 @@ export function InvoiceBuilder({
 }: InvoiceBuilderProps) {
   const [billingPeriodId, setBillingPeriodId] = useState('');
   const [includeProcessingFee, setIncludeProcessingFee] = useState(true);
+  const [includeRetainer, setIncludeRetainer] = useState(false);
   const [memo, setMemo] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [manualLines, setManualLines] = useState<
@@ -61,6 +63,7 @@ export function InvoiceBuilder({
       await onGenerate({
         billingPeriodId,
         includeProcessingFee,
+        includeRetainer,
         memo: memo.trim() || undefined,
         collectionMethod,
         dueDate: collectionMethod === 'send_invoice' && dueDate ? dueDate : undefined,
@@ -118,6 +121,19 @@ export function InvoiceBuilder({
             />
             <label htmlFor="processing-fee" className="text-sm text-muted-foreground">
               Include processing fee line item for card payments
+            </label>
+          </div>
+
+          <div className="flex items-start gap-2">
+            <input
+              id="include-retainer"
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-input text-primary focus:ring-primary"
+              checked={includeRetainer}
+              onChange={(event) => setIncludeRetainer(event.target.checked)}
+            />
+            <label htmlFor="include-retainer" className="text-sm text-muted-foreground">
+              Include base retainer line item in this invoice. Leave off to bill extra work only.
             </label>
           </div>
 

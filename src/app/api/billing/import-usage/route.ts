@@ -127,6 +127,10 @@ export async function POST(req: Request) {
       }
 
       const costCents = Math.round(costDollars * 100);
+      if (!Number.isFinite(costCents) || costCents <= 0) {
+        parseErrors.push(`Row ${index + 1}: cost must be at least $0.01.`);
+        return;
+      }
       totalCostCents += costCents;
 
       const tokensValue =

@@ -63,6 +63,14 @@ export async function POST(req: Request) {
           (await handleInvoicePaid(event.data.object as Stripe.Invoice, stripe, supabaseAdmin)) &&
           ok;
         break;
+      case 'invoice.finalized':
+        ok =
+          (await handleInvoiceFinalized(
+            event.data.object as Stripe.Invoice,
+            stripe,
+            supabaseAdmin,
+          )) && ok;
+        break;
       case 'invoice.payment_failed':
         ok =
           (await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice, supabaseAdmin)) &&
@@ -130,6 +138,11 @@ async function handleInvoicePaid(
   stripe: Stripe,
   supabaseAdmin: SupabaseAdminClient,
 ): Promise<boolean> {
+  const ensured = await upsertInvoiceRecord(invoice, supabaseAdmin);
+  if (!ensured) {
+    console.warn('[stripe webhook] unable to upsert invoice before marking paid', invoice.id);
+  }
+
   const stripeInvoiceId = invoice.id;
   let processingFeeCents = 0;
   let netAmountCents = invoice.amount_paid ?? invoice.amount_due ?? 0;
@@ -153,10 +166,17 @@ async function handleInvoicePaid(
 
   const taxCents = invoice.total_tax_amounts?.reduce((sum, tax) => sum + (tax.amount ?? 0), 0) ?? 0;
 
-  const { error } = await supabaseAdmin
+  const metadataPayload: Record<string, unknown> = {
+    ...(invoice.metadata ?? {}),
+    stripe_event_id: invoice.id,
+    paid_at: new Date().toISOString(),
+    auto_created_from_stripe: true,
+  };
+
+  const { data: updated, error } = await supabaseAdmin
     .from('invoices')
     .update({
-      status: 'paid',
+      status: invoice.status || 'paid',
       subtotal_cents: invoice.subtotal ?? invoice.amount_paid ?? 0,
       tax_cents: taxCents,
       processing_fee_cents: processingFeeCents,
@@ -167,15 +187,13 @@ async function handleInvoicePaid(
       payment_method_used: paymentSummary.method,
       payment_brand: paymentSummary.brand,
       payment_last4: paymentSummary.last4,
-      metadata: {
-        ...invoice.metadata,
-        stripe_event_id: invoice.id,
-        paid_at: new Date().toISOString(),
-      },
+      metadata: metadataPayload,
     })
-    .eq('stripe_invoice_id', stripeInvoiceId);
+    .eq('stripe_invoice_id', stripeInvoiceId)
+    .select('id')
+    .maybeSingle();
 
-  if (error) {
+  if (error || !updated) {
     console.error('[stripe webhook] failed to update paid invoice', {
       stripeInvoiceId,
       error,
@@ -185,24 +203,42 @@ async function handleInvoicePaid(
   return true;
 }
 
+async function handleInvoiceFinalized(
+  invoice: Stripe.Invoice,
+  _stripe: Stripe,
+  supabaseAdmin: SupabaseAdminClient,
+): Promise<boolean> {
+  return upsertInvoiceRecord(invoice, supabaseAdmin);
+}
+
 async function handleInvoicePaymentFailed(
   invoice: Stripe.Invoice,
   supabaseAdmin: SupabaseAdminClient,
 ): Promise<boolean> {
+  const ensured = await upsertInvoiceRecord(invoice, supabaseAdmin);
+  if (!ensured) {
+    console.warn('[stripe webhook] unable to upsert invoice before marking failed', invoice.id);
+  }
+
   const attempt = invoice.attempt_count ?? 0;
-  const { error } = await supabaseAdmin
+  const metadataPayload: Record<string, unknown> = {
+    ...(invoice.metadata ?? {}),
+    last_failed_attempt: new Date().toISOString(),
+    attempt_count: attempt,
+    auto_created_from_stripe: true,
+  };
+
+  const { data: updated, error } = await supabaseAdmin
     .from('invoices')
     .update({
       status: 'open',
-      metadata: {
-        ...invoice.metadata,
-        last_failed_attempt: new Date().toISOString(),
-        attempt_count: attempt,
-      },
+      metadata: metadataPayload,
     })
-    .eq('stripe_invoice_id', invoice.id);
+    .eq('stripe_invoice_id', invoice.id)
+    .select('id')
+    .maybeSingle();
 
-  if (error) {
+  if (error || !updated) {
     console.error('[stripe webhook] failed to update failed invoice', {
       stripeInvoiceId: invoice.id,
       error,
@@ -210,6 +246,315 @@ async function handleInvoicePaymentFailed(
     return false;
   }
   return true;
+}
+
+type ProjectRecord = {
+  id: string;
+  client_id: string | null;
+  created_by: string;
+  base_retainer_cents: number | null;
+  payment_method_type: string | null;
+  auto_pay_enabled: boolean | null;
+  stripe_subscription_id: string | null;
+  stripe_customer_id: string | null;
+  name?: string | null;
+};
+
+async function upsertInvoiceRecord(
+  invoice: Stripe.Invoice,
+  supabaseAdmin: SupabaseAdminClient,
+): Promise<boolean> {
+  const context = await resolveProjectContext(invoice, supabaseAdmin);
+  if (!context.project) {
+    console.warn('[stripe webhook] unable to resolve project for invoice', invoice.id, context);
+    return false;
+  }
+
+  const ownerId =
+    context.project.created_by ||
+    getMetadataString(invoice.metadata, 'created_by', 'owner_id', 'user_id');
+  if (!ownerId) {
+    console.warn('[stripe webhook] missing owner for invoice insert', invoice.id);
+    return false;
+  }
+
+  const invoiceNumber = invoice.number || invoice.id;
+  const subtotalCents = invoice.subtotal ?? invoice.amount_due ?? 0;
+  const totalCents = invoice.total ?? invoice.amount_due ?? subtotalCents;
+  const taxCents = invoice.total_tax_amounts?.reduce((sum, tax) => sum + (tax.amount ?? 0), 0) ?? 0;
+  const dueDateYmd =
+    typeof invoice.due_date === 'number'
+      ? new Date(invoice.due_date * 1000).toISOString().slice(0, 10)
+      : null;
+  const createdAtIso =
+    typeof invoice.created === 'number'
+      ? new Date(invoice.created * 1000).toISOString()
+      : new Date().toISOString();
+  const stripeCustomerId =
+    typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id ?? null;
+  const stripeSubscriptionId =
+    typeof invoice.subscription === 'string'
+      ? invoice.subscription
+      : invoice.subscription?.id ?? null;
+  const paymentMethodType =
+    context.project.payment_method_type ||
+    (invoice.collection_method === 'send_invoice' ? 'offline' : 'card');
+
+  const metadataPayload: Record<string, unknown> = {
+    ...(invoice.metadata ?? {}),
+    auto_created_from_stripe: true,
+  };
+  if (invoice.billing_reason) {
+    metadataPayload.billing_reason = invoice.billing_reason;
+  }
+  if (context.billingPeriodId) {
+    metadataPayload.billing_period_id = context.billingPeriodId;
+  }
+  if (context.clientId) {
+    metadataPayload.client_id = context.clientId;
+  }
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('invoices')
+    .select('id')
+    .eq('stripe_invoice_id', invoice.id)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error('[stripe webhook] failed to lookup existing invoice', {
+      invoiceId: invoice.id,
+      error: existingError,
+    });
+    return false;
+  }
+
+  if (existing) {
+    const { error: updateError } = await supabaseAdmin
+      .from('invoices')
+      .update({
+        invoice_number: invoiceNumber,
+        project_id: context.project.id,
+        client_id: context.clientId ?? context.project.client_id,
+        billing_period_id: context.billingPeriodId,
+        subtotal_cents: subtotalCents,
+        tax_cents: taxCents,
+        total_cents: totalCents,
+        net_amount_cents: invoice.amount_paid ?? totalCents,
+        stripe_customer_id: stripeCustomerId,
+        stripe_subscription_id: stripeSubscriptionId,
+        stripe_hosted_url: invoice.hosted_invoice_url,
+        stripe_pdf_url: invoice.invoice_pdf,
+        payment_method_type: paymentMethodType,
+        collection_method: invoice.collection_method ?? 'charge_automatically',
+        due_date: dueDateYmd,
+        status: invoice.status ?? 'draft',
+        metadata: metadataPayload,
+      })
+      .eq('id', existing.id);
+
+    if (updateError) {
+      console.error('[stripe webhook] failed to update invoice record', {
+        invoiceId: invoice.id,
+        error: updateError,
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  const insertPayload = {
+    invoice_number: invoiceNumber,
+    project_id: context.project.id,
+    client_id: context.clientId ?? context.project.client_id,
+    billing_period_id: context.billingPeriodId,
+    stripe_invoice_id: invoice.id,
+    stripe_customer_id: stripeCustomerId,
+    stripe_subscription_id: stripeSubscriptionId,
+    subtotal_cents: subtotalCents,
+    tax_cents: taxCents,
+    processing_fee_cents: 0,
+    total_cents: totalCents,
+    net_amount_cents: invoice.amount_paid ?? 0,
+    payment_method_type: paymentMethodType,
+    collection_method: invoice.collection_method ?? 'charge_automatically',
+    due_date: dueDateYmd,
+    status: invoice.status ?? 'draft',
+    stripe_hosted_url: invoice.hosted_invoice_url,
+    stripe_pdf_url: invoice.invoice_pdf,
+    metadata: metadataPayload,
+    created_by: ownerId,
+    created_at: createdAtIso,
+  };
+
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('invoices')
+    .insert(insertPayload)
+    .select('id')
+    .single();
+
+  if (insertError || !inserted) {
+    console.error('[stripe webhook] failed to insert invoice record', {
+      invoiceId: invoice.id,
+      error: insertError,
+    });
+    return false;
+  }
+
+  const lineItems = Array.isArray(invoice.lines?.data) ? invoice.lines.data : [];
+  if (lineItems.length > 0) {
+    const linePayloads = lineItems.map((line, index) => {
+      const amountCents = line.amount ?? 0;
+      const quantity = line.quantity ?? 1;
+      return {
+        invoice_id: inserted.id,
+        line_type: inferLineType(line),
+        description:
+          line.description ||
+          line.price?.nickname ||
+          (line.price?.product ? String(line.price.product) : undefined) ||
+          'Line item',
+        quantity,
+        unit_price_cents: determineUnitAmountCents(line, amountCents, quantity),
+        amount_cents: amountCents,
+        sort_order: index,
+        metadata: line.metadata ?? null,
+        created_by: ownerId,
+      };
+    });
+
+    const { error: lineError } = await supabaseAdmin
+      .from('invoice_line_items')
+      .insert(linePayloads);
+
+    if (lineError) {
+      console.error('[stripe webhook] failed to insert invoice line items', {
+        invoiceId: invoice.id,
+        error: lineError,
+      });
+    }
+  }
+
+  return true;
+}
+
+async function resolveProjectContext(
+  invoice: Stripe.Invoice,
+  supabaseAdmin: SupabaseAdminClient,
+): Promise<{
+  project: ProjectRecord | null;
+  clientId: string | null;
+  billingPeriodId: string | null;
+}> {
+  const metadata = invoice.metadata ?? null;
+  const projectIdFromMetadata = getMetadataString(metadata, 'project_id', 'projectId');
+  const clientIdFromMetadata = getMetadataString(metadata, 'client_id', 'clientId');
+  const billingPeriodId = getMetadataString(metadata, 'billing_period_id', 'billingPeriodId');
+  const projectSelect =
+    'id, client_id, created_by, base_retainer_cents, payment_method_type, auto_pay_enabled, stripe_subscription_id, stripe_customer_id, name';
+
+  let project: ProjectRecord | null = null;
+
+  if (projectIdFromMetadata) {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .select(projectSelect)
+      .eq('id', projectIdFromMetadata)
+      .maybeSingle();
+    if (error) {
+      console.error('[stripe webhook] failed to lookup project by id', {
+        projectId: projectIdFromMetadata,
+        error,
+      });
+    } else {
+      project = (data as ProjectRecord | null) ?? null;
+    }
+  }
+
+  if (!project && typeof invoice.subscription === 'string' && invoice.subscription) {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .select(projectSelect)
+      .eq('stripe_subscription_id', invoice.subscription)
+      .maybeSingle();
+    if (error) {
+      console.error('[stripe webhook] failed to lookup project by subscription', {
+        subscriptionId: invoice.subscription,
+        error,
+      });
+    } else {
+      project = (data as ProjectRecord | null) ?? null;
+    }
+  }
+
+  if (!project && typeof invoice.customer === 'string' && invoice.customer) {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .select(projectSelect)
+      .eq('stripe_customer_id', invoice.customer)
+      .maybeSingle();
+    if (error) {
+      console.error('[stripe webhook] failed to lookup project by customer', {
+        customerId: invoice.customer,
+        error,
+      });
+    } else {
+      project = (data as ProjectRecord | null) ?? null;
+    }
+  }
+
+  return {
+    project,
+    clientId: clientIdFromMetadata ?? project?.client_id ?? null,
+    billingPeriodId,
+  };
+}
+
+function determineUnitAmountCents(
+  line: Stripe.InvoiceLineItem,
+  amountCents: number,
+  quantity: number,
+): number {
+  if (typeof line.unit_amount_excluding_tax === 'number') {
+    return Math.round(line.unit_amount_excluding_tax);
+  }
+  if (typeof line.price?.unit_amount === 'number') {
+    return line.price.unit_amount;
+  }
+  if (quantity > 0) {
+    return Math.round(amountCents / quantity);
+  }
+  return amountCents;
+}
+
+function inferLineType(line: Stripe.InvoiceLineItem): string {
+  if (line.metadata?.line_type) {
+    return line.metadata.line_type;
+  }
+  if (line.type === 'subscription') {
+    return 'subscription';
+  }
+  if (line.price?.recurring) {
+    return 'subscription';
+  }
+  if (line.type === 'invoiceitem') {
+    return 'invoice_item';
+  }
+  return 'project';
+}
+
+function getMetadataString(
+  metadata: Stripe.Metadata | null | undefined,
+  ...keys: string[]
+): string | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 type PaymentMethodSummary = {

@@ -1,10 +1,11 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Invoice } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { deleteDraftInvoice } from '@/lib/api';
+import { Copy } from 'lucide-react';
 
 type InvoiceListProps = {
   invoices: Invoice[];
@@ -49,6 +50,16 @@ export function InvoiceList({
     () => [...invoices].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
     [invoices],
   );
+  const [copiedInvoiceId, setCopiedInvoiceId] = useState<string | null>(null);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleFinalize = async (invoiceId: string) => {
     await onFinalize(invoiceId);
@@ -56,6 +67,27 @@ export function InvoiceList({
 
   const handleMarkOffline = async (invoiceId: string) => {
     await onMarkOffline(invoiceId);
+  };
+
+  const handleCopyLink = async (invoice: Invoice) => {
+    if (!invoice.stripe_hosted_url) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(invoice.stripe_hosted_url);
+      } else if (typeof window !== 'undefined') {
+        window.prompt('Copy invoice link:', invoice.stripe_hosted_url);
+      }
+      setCopiedInvoiceId(invoice.id);
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = setTimeout(() => setCopiedInvoiceId(null), 2000);
+    } catch (error) {
+      console.error('[InvoiceList] clipboard error', error);
+      if (typeof window !== 'undefined') {
+        window.prompt('Copy invoice link:', invoice.stripe_hosted_url);
+      }
+    }
   };
 
   return (
@@ -124,11 +156,26 @@ export function InvoiceList({
                       <td className="py-3">
                         <div className="flex items-center justify-end gap-2">
                           {invoice.stripe_hosted_url && (
-                            <Button asChild size="sm" variant="outline">
-                              <a href={invoice.stripe_hosted_url} target="_blank" rel="noreferrer">
-                                View
-                              </a>
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="flex items-center gap-1"
+                                onClick={() => handleCopyLink(invoice)}
+                              >
+                                <Copy className="h-4 w-4" />
+                                {copiedInvoiceId === invoice.id ? 'Copied' : 'Copy link'}
+                              </Button>
+                              <Button asChild size="sm" variant="outline">
+                                <a
+                                  href={invoice.stripe_hosted_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  View
+                                </a>
+                              </Button>
+                            </>
                           )}
                           {invoice.status !== 'paid' && (
                             <>
