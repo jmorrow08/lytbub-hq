@@ -197,10 +197,26 @@ export async function POST(req: Request) {
     // Determine collection method and due date (for manual invoices)
     const collectionMethod: 'charge_automatically' | 'send_invoice' =
       payload.collectionMethod === 'send_invoice' ? 'send_invoice' : 'charge_automatically';
-    const dueDateUnix =
-      collectionMethod === 'send_invoice' && payload.dueDate
-        ? Math.floor(new Date(payload.dueDate).getTime() / 1000)
-        : null;
+    // Enforce dueDate when sending an invoice (manual collection)
+    let dueDateUnix: number | null = null;
+    if (collectionMethod === 'send_invoice') {
+      const raw = payload.dueDate;
+      const isYmd = typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw);
+      if (!isYmd) {
+        return NextResponse.json(
+          { error: 'dueDate (YYYY-MM-DD) is required when collectionMethod is "send_invoice".' },
+          { status: 400 },
+        );
+      }
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json(
+          { error: 'dueDate is invalid. Expected format: YYYY-MM-DD.' },
+          { status: 400 },
+        );
+      }
+      dueDateUnix = Math.floor(parsed.getTime() / 1000);
+    }
 
     const stripeInvoice = await createDraftInvoice({
       customerId: project.stripe_customer_id,
