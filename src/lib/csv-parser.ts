@@ -197,11 +197,18 @@ export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
 
     // Derive unit price from total if needed
     if ((rawUnitPrice === '' || Number.isNaN(unitPrice)) && !Number.isNaN(total)) {
-      unitPrice = total / (quantity || 1);
+      // If quantity is zero or invalid at this point, reject the row instead of assuming 1
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        errors.push(
+          `Row ${lineIndex}: quantity must be a positive number when deriving unit price from total.`,
+        );
+        continue;
+      }
+      unitPrice = total / quantity;
     }
 
-    if (Number.isNaN(quantity) || !Number.isFinite(quantity) || quantity < 0) {
-      errors.push(`Row ${lineIndex}: quantity must be a non-negative number.`);
+    if (Number.isNaN(quantity) || !Number.isFinite(quantity) || quantity <= 0) {
+      errors.push(`Row ${lineIndex}: quantity must be a positive number.`);
       continue;
     }
 
