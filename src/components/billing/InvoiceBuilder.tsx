@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BillingPeriod, Invoice } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ type InvoiceBuilderProps = {
     includeProcessingFee: boolean;
     memo?: string;
     manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
+    collectionMethod?: 'charge_automatically' | 'send_invoice';
+    dueDate?: string;
   }) => Promise<void>;
   generating: boolean;
   draftInvoice?: Invoice | null;
@@ -34,6 +36,19 @@ export function InvoiceBuilder({
   const [manualLines, setManualLines] = useState<
     Array<{ description: string; quantity: string; unitPrice: string }>
   >([]);
+  const [liveInvoice, setLiveInvoice] = useState<Invoice | null>(draftInvoice ?? null);
+  const [collectionMethod, setCollectionMethod] = useState<'charge_automatically' | 'send_invoice'>(
+    'charge_automatically',
+  );
+  const [dueDate, setDueDate] = useState('');
+
+  // Keep a live copy in sync with latest draft provided by parent
+  // (e.g., after creating a new draft via onGenerate)
+  useEffect(() => {
+    if (draftInvoice && (!liveInvoice || liveInvoice.id !== draftInvoice.id)) {
+      setLiveInvoice(draftInvoice);
+    }
+  }, [draftInvoice, liveInvoice]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -47,6 +62,8 @@ export function InvoiceBuilder({
         billingPeriodId,
         includeProcessingFee,
         memo: memo.trim() || undefined,
+        collectionMethod,
+        dueDate: collectionMethod === 'send_invoice' && dueDate ? dueDate : undefined,
         // normalize manual lines
         manualLines:
           manualLines.length > 0
@@ -114,6 +131,51 @@ export function InvoiceBuilder({
               value={memo}
               onChange={(event) => setMemo(event.target.value)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">How to collect payment</p>
+            <div className="flex items-center gap-4">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="collection"
+                  value="charge_automatically"
+                  checked={collectionMethod === 'charge_automatically'}
+                  onChange={() => setCollectionMethod('charge_automatically')}
+                />
+                Auto-charge (subscription / saved payment method)
+              </label>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="collection"
+                  value="send_invoice"
+                  checked={collectionMethod === 'send_invoice'}
+                  onChange={() => setCollectionMethod('send_invoice')}
+                />
+                Send invoice (customer pays by due date)
+              </label>
+            </div>
+            {collectionMethod === 'send_invoice' && (
+              <div className="grid gap-2 md:grid-cols-2">
+                <div>
+                  <label htmlFor="due-date" className="block text-sm font-medium mb-1">
+                    Due date
+                  </label>
+                  <Input
+                    id="due-date"
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    required
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground md:self-end">
+                  Customer will see the due date on Stripe’s hosted page.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -202,40 +264,43 @@ export function InvoiceBuilder({
           </Button>
         </form>
 
-        {draftInvoice && (
+        {(liveInvoice || draftInvoice) && (
           <div className="rounded-lg border border-border/60 p-4 space-y-3 bg-muted/40">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Draft Invoice</p>
-                <p className="text-lg font-semibold">{draftInvoice.invoice_number}</p>
+                <p className="text-lg font-semibold">
+                  {(liveInvoice || draftInvoice)!.invoice_number}
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-muted-foreground">Total</p>
                 <p className="text-xl font-bold">
-                  {currency.format(draftInvoice.total_cents / 100)}
+                  {currency.format(((liveInvoice || draftInvoice)!.total_cents || 0) / 100)}
                 </p>
               </div>
             </div>
-            {draftInvoice.line_items && draftInvoice.line_items.length > 0 && (
-              <div className="space-y-2">
-                {draftInvoice.line_items.map((line) => (
-                  <div
-                    key={line.id ?? `${line.description}-${line.amount_cents}`}
-                    className="flex items-center justify-between text-sm"
-                  >
-                    <div>
-                      <p className="font-medium">{line.description}</p>
-                      <p className="text-muted-foreground">
-                        {line.quantity} × {currency.format(line.unit_price_cents / 100)}
-                      </p>
+            {(liveInvoice || draftInvoice)!.line_items &&
+              (liveInvoice || draftInvoice)!.line_items!.length > 0 && (
+                <div className="space-y-2">
+                  {(liveInvoice || draftInvoice)!.line_items!.map((line) => (
+                    <div
+                      key={line.id ?? `${line.description}-${line.amount_cents}`}
+                      className="flex items-center justify-between text-sm"
+                    >
+                      <div>
+                        <p className="font-medium">{line.description}</p>
+                        <p className="text-muted-foreground">
+                          {line.quantity} × {currency.format(line.unit_price_cents / 100)}
+                        </p>
+                      </div>
+                      <span className="font-semibold">
+                        {currency.format(line.amount_cents / 100)}
+                      </span>
                     </div>
-                    <span className="font-semibold">
-                      {currency.format(line.amount_cents / 100)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
             <div className="pt-2 border-t border-border/40">
               <p className="text-sm font-medium mb-2">Add line item to this draft</p>
               <form
@@ -249,11 +314,15 @@ export function InvoiceBuilder({
                   const unitPrice = Number(formData.get('price') || 0);
                   if (!description || !Number.isFinite(unitPrice)) return;
                   try {
-                    await addDraftInvoiceLineItem(draftInvoice.id, {
-                      description,
-                      quantity,
-                      unitPriceCents: Math.round(unitPrice * 100),
-                    });
+                    const updated = await addDraftInvoiceLineItem(
+                      (liveInvoice || draftInvoice)!.id,
+                      {
+                        description,
+                        quantity,
+                        unitPriceCents: Math.round(unitPrice * 100),
+                      },
+                    );
+                    setLiveInvoice(updated);
                     // Let parent reload invoices; minimal UX: clear fields
                     form.reset();
                   } catch {

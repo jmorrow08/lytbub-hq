@@ -26,6 +26,7 @@ type ProjectSummary = {
   name?: string | null;
   client_id?: string | null;
   client?: ClientSummary | null;
+  stripe_customer_id?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
         { error: 'Supabase client is not configured on the server.' },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -53,10 +54,7 @@ export async function POST(req: Request) {
     const payload = (await req.json()) as CheckoutPayload;
     const amountCents = Number(payload?.amountCents);
     if (!Number.isFinite(amountCents) || amountCents <= 0) {
-      return NextResponse.json(
-        { error: 'amountCents must be a positive number' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'amountCents must be a positive number' }, { status: 400 });
     }
 
     const rawDescription = payload?.description;
@@ -99,7 +97,7 @@ export async function POST(req: Request) {
         console.error('[api/finance/create-checkout] Failed to validate client', clientError);
         return NextResponse.json(
           { error: 'Unable to validate the selected client.' },
-          { status: 500 }
+          { status: 500 },
         );
       }
 
@@ -112,16 +110,19 @@ export async function POST(req: Request) {
     if (projectId) {
       const { data: projectData, error: projectError } = await supabase
         .from('projects')
-        .select('id, name, client_id, client:clients(id, name)')
+        .select('id, name, client_id, stripe_customer_id, client:clients(id, name)')
         .eq('id', projectId)
         .eq('created_by', user.id)
         .maybeSingle();
 
       if (projectError) {
-        console.error('[api/finance/create-checkout] Failed to validate client project', projectError);
+        console.error(
+          '[api/finance/create-checkout] Failed to validate client project',
+          projectError,
+        );
         return NextResponse.json(
           { error: 'Unable to validate the selected client project.' },
-          { status: 500 }
+          { status: 500 },
         );
       }
 
@@ -145,6 +146,7 @@ export async function POST(req: Request) {
         name: projectData.name ?? null,
         client_id: projectData.client_id ?? null,
         client: normalizedClient,
+        stripe_customer_id: (projectData as any).stripe_customer_id ?? null,
       };
 
       if (!clientRecord) {
@@ -154,9 +156,7 @@ export async function POST(req: Request) {
             ? {
                 id: (projectData as any).client_id,
                 name:
-                  typeof (projectData as any).name === 'string'
-                    ? (projectData as any).name
-                    : null,
+                  typeof (projectData as any).name === 'string' ? (projectData as any).name : null,
               }
             : null);
         clientRecord = candidate;
@@ -176,14 +176,14 @@ export async function POST(req: Request) {
     if (!stripeSecretKey) {
       if (!supabaseFunctionsOrigin) {
         console.error(
-          '[api/finance/create-checkout] Missing both STRIPE secret and Supabase functions origin'
+          '[api/finance/create-checkout] Missing both STRIPE secret and Supabase functions origin',
         );
         return NextResponse.json(
           {
             error:
               'Stripe is not configured on this deployment. Please set STRIPE_SECRET_KEY or SUPABASE_FUNCTIONS_URL.',
           },
-          { status: 500 }
+          { status: 500 },
         );
       }
 
@@ -203,11 +203,18 @@ export async function POST(req: Request) {
     const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
     const paymentId = crypto.randomUUID();
     const siteUrl =
-      process.env.SITE_URL ||
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      'https://lytbub-hq.vercel.app';
+      process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://lytbub-hq.vercel.app';
 
     let session: Stripe.Response<Stripe.Checkout.Session>;
+    const allowedPmTypes = (
+      process.env.STRIPE_CHECKOUT_PAYMENT_METHOD_TYPES ||
+      process.env.STRIPE_PAYMENT_METHOD_TYPES ||
+      process.env.NEXT_PUBLIC_STRIPE_PAYMENT_METHOD_TYPES ||
+      'card,us_bank_account,link'
+    )
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     try {
       session = await stripe.checkout.sessions.create({
         mode: 'payment',
@@ -221,6 +228,10 @@ export async function POST(req: Request) {
             quantity: 1,
           },
         ],
+        customer: projectRecord?.stripe_customer_id || undefined,
+        payment_method_types:
+          allowedPmTypes as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
+        payment_method_collection: 'always',
         success_url: `${siteUrl}/payment/success?paymentId=${paymentId}`,
         cancel_url: `${siteUrl}/payment/cancel?paymentId=${paymentId}`,
         customer_email: payload?.customerEmail || undefined,
@@ -230,16 +241,13 @@ export async function POST(req: Request) {
       console.error('[api/finance/create-checkout] Stripe session creation failed', error);
       return NextResponse.json(
         { error: 'Failed to create the Stripe checkout session.' },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     if (!session?.url) {
       console.error('[api/finance/create-checkout] Stripe did not return a checkout URL', session);
-      return NextResponse.json(
-        { error: 'Stripe did not return a checkout URL.' },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: 'Stripe did not return a checkout URL.' }, { status: 502 });
     }
 
     const { data: paymentRow, error: insertError } = await supabase
@@ -263,7 +271,7 @@ export async function POST(req: Request) {
       console.error('[api/finance/create-checkout] Failed to persist payment row', insertError);
       return NextResponse.json(
         { error: 'Failed to log the payment in Supabase.' },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -284,7 +292,10 @@ function deriveSupabaseFunctionsOrigin(supabaseUrl?: string | null): string | nu
     const functionHost = parsed.host.replace('.supabase.', '.functions.supabase.');
     return `${parsed.protocol}//${functionHost}`;
   } catch (error) {
-    console.error('[api/finance/create-checkout] Unable to derive Supabase functions origin', error);
+    console.error(
+      '[api/finance/create-checkout] Unable to derive Supabase functions origin',
+      error,
+    );
     return null;
   }
 }
@@ -319,11 +330,11 @@ async function forwardToSupabaseFunction({
         console.error(
           '[api/finance/create-checkout] Invalid JSON from Supabase function',
           error,
-          text
+          text,
         );
         return NextResponse.json(
           { error: 'Payment service returned invalid response.' },
-          { status: 502 }
+          { status: 502 },
         );
       }
     }
@@ -333,7 +344,7 @@ async function forwardToSupabaseFunction({
     console.error('[api/finance/create-checkout] Supabase function proxy failed', error);
     return NextResponse.json(
       { error: 'Payment service is unavailable. Please try again later.' },
-      { status: 502 }
+      { status: 502 },
     );
   }
 }

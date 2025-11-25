@@ -55,6 +55,7 @@ export function InvoiceList({
                 <tr>
                   <th className="py-2 text-left">Invoice</th>
                   <th className="py-2 text-left">Client</th>
+                  <th className="py-2 text-left">Due</th>
                   <th className="py-2 text-left">Total</th>
                   <th className="py-2 text-left">Status</th>
                   <th className="py-2 text-left">Payment Method</th>
@@ -73,13 +74,21 @@ export function InvoiceList({
                     <td className="py-3">
                       {clientLookup?.[invoice.project_id] ?? invoice.project_id}
                     </td>
+                    <td className="py-3">
+                      {invoice.collection_method === 'send_invoice' && invoice.due_date
+                        ? new Date(invoice.due_date).toLocaleDateString()
+                        : '—'}
+                    </td>
                     <td className="py-3 font-semibold">
                       {currency.format(invoice.total_cents / 100)}
                     </td>
                     <td className="py-3 capitalize">
                       <StatusBadge status={invoice.status} />
                     </td>
-                    <td className="py-3 capitalize">{invoice.payment_method_type}</td>
+                    <td className="py-3 capitalize">
+                      {invoice.payment_method_type}
+                      {invoice.collection_method === 'send_invoice' ? ' (invoice)' : ' (auto)'}
+                    </td>
                     <td className="py-3">
                       <div className="flex items-center justify-end gap-2">
                         {invoice.stripe_hosted_url && (

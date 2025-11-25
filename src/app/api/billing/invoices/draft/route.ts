@@ -18,6 +18,8 @@ type DraftInvoicePayload = {
     quantity?: number;
     unitPriceCents: number;
   }>;
+  collectionMethod?: 'charge_automatically' | 'send_invoice';
+  dueDate?: string; // YYYY-MM-DD
 };
 
 export async function POST(req: Request) {
@@ -192,9 +194,19 @@ export async function POST(req: Request) {
 
     const description = `Services ${period.period_start} → ${period.period_end}`;
 
+    // Determine collection method and due date (for manual invoices)
+    const collectionMethod: 'charge_automatically' | 'send_invoice' =
+      payload.collectionMethod === 'send_invoice' ? 'send_invoice' : 'charge_automatically';
+    const dueDateUnix =
+      collectionMethod === 'send_invoice' && payload.dueDate
+        ? Math.floor(new Date(payload.dueDate).getTime() / 1000)
+        : null;
+
     const stripeInvoice = await createDraftInvoice({
       customerId: project.stripe_customer_id,
       subscriptionId: project.stripe_subscription_id || undefined,
+      collectionMethod,
+      dueDate: dueDateUnix,
       description,
       metadata: {
         billing_period_id: period.id,
@@ -236,6 +248,8 @@ export async function POST(req: Request) {
         total_cents: totalCents,
         net_amount_cents: totalCents,
         payment_method_type: paymentMethodType,
+        collection_method: collectionMethod,
+        due_date: collectionMethod === 'send_invoice' ? payload.dueDate || null : null,
         status: 'draft',
         metadata: { memo: payload.memo },
         created_by: user.id,

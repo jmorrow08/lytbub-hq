@@ -29,7 +29,16 @@ export type AppMode = 'LYTBUB_HQ' | 'FOCUS_PRO';
 export interface ProjectChannel {
   id: string;
   project_id: string;
-  platform: 'youtube' | 'instagram' | 'tiktok' | 'twitter' | 'linkedin' | 'website' | 'podcast' | 'newsletter' | 'other';
+  platform:
+    | 'youtube'
+    | 'instagram'
+    | 'tiktok'
+    | 'twitter'
+    | 'linkedin'
+    | 'website'
+    | 'podcast'
+    | 'newsletter'
+    | 'other';
   handle?: string | null;
   url?: string | null;
   is_primary: boolean;
@@ -136,6 +145,8 @@ export interface Invoice {
   total_cents: number;
   net_amount_cents: number;
   payment_method_type: 'card' | 'ach' | 'offline';
+  collection_method?: 'charge_automatically' | 'send_invoice';
+  due_date?: string | null;
   status: InvoiceStatus;
   stripe_hosted_url?: string | null;
   stripe_pdf_url?: string | null;

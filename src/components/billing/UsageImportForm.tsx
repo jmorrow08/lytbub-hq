@@ -34,7 +34,7 @@ export function UsageImportForm({
 
   const filteredPeriods = useMemo(
     () => billingPeriods.filter((period) => period.project_id === selectedProjectId),
-    [billingPeriods, selectedProjectId]
+    [billingPeriods, selectedProjectId],
   );
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,14 +132,13 @@ export function UsageImportForm({
             <label htmlFor="usage-file" className="block text-sm font-medium mb-1">
               Usage CSV
             </label>
-            <Input
-              id="usage-file"
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleFileChange}
-            />
+            <Input id="usage-file" type="file" accept=".csv,text/csv" onChange={handleFileChange} />
             <p className="text-xs text-muted-foreground mt-1">
-              Columns: client_name,date,metric_type,quantity,unit_price,description
+              Flexible CSV: requires <span className="font-medium">date</span> and either{' '}
+              <span className="font-medium">unit_price</span> or{' '}
+              <span className="font-medium">total</span>. Optional: client_name, metric_type,
+              quantity, description. Common header synonyms are supported (qty, price, amount,
+              details, etc.).
             </p>
           </div>
 
@@ -163,4 +162,3 @@ export function UsageImportForm({
     </Card>
   );
 }
-

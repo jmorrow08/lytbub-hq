@@ -614,6 +614,8 @@ export const createDraftInvoice = async (payload: {
   includeProcessingFee?: boolean;
   memo?: string;
   manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
+  collectionMethod?: 'charge_automatically' | 'send_invoice';
+  dueDate?: string; // YYYY-MM-DD
 }): Promise<Invoice> => {
   const data = await authedRequest<{ invoice: Invoice }>(`/api/billing/invoices/draft`, {
     method: 'POST',

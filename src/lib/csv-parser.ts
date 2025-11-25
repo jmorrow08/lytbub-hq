@@ -5,6 +5,8 @@ export type UsageCsvRow = {
   quantity: number;
   unit_price: number;
   description: string;
+  // Optional total cost column supported in flexible parsing
+  total_cost?: number;
 };
 
 export type UsageCsvParseResult = {
@@ -13,19 +15,91 @@ export type UsageCsvParseResult = {
   header: string[];
 };
 
-const REQUIRED_HEADERS = [
-  'client_name',
-  'date',
-  'metric_type',
-  'quantity',
-  'unit_price',
-  'description',
-] as const;
+/**
+ * Flexible header support:
+ * - date is required
+ * - Either unit_price or total_cost must be present
+ * - quantity, metric_type, description, client_name are optional
+ */
+const CORE_REQUIRED_HEADERS = ['date'] as const;
 
-const NORMALIZED_HEADER_LOOKUP = REQUIRED_HEADERS.reduce<Record<string, string>>((acc, header) => {
-  acc[header] = header;
-  return acc;
-}, {});
+// Map common synonyms to our canonical field names
+const HEADER_SYNONYMS: Record<string, string> = {
+  // client
+  client_name: 'client_name',
+  client: 'client_name',
+  customer: 'client_name',
+  account: 'client_name',
+  'client name': 'client_name',
+  'project name': 'client_name',
+  project: 'client_name',
+
+  // date
+  date: 'date',
+  day: 'date',
+  event_date: 'date',
+  timestamp: 'date',
+
+  // metric / type
+  metric: 'metric_type',
+  metric_type: 'metric_type',
+  usage_type: 'metric_type',
+  service: 'metric_type',
+  item: 'metric_type',
+  category: 'metric_type',
+  charge_type: 'metric_type',
+
+  // quantity
+  quantity: 'quantity',
+  qty: 'quantity',
+  units: 'quantity',
+  count: 'quantity',
+  hours: 'quantity',
+
+  // unit price
+  unit_price: 'unit_price',
+  'unit price': 'unit_price',
+  price: 'unit_price',
+  rate: 'unit_price',
+  'unit cost': 'unit_price',
+  unit_cost: 'unit_price',
+  cost_per_unit: 'unit_price',
+  'per unit rate': 'unit_price',
+  unitamount: 'unit_price',
+  unit_amount: 'unit_price',
+
+  // total cost (fallback if unit_price missing)
+  total: 'total_cost',
+  amount: 'total_cost',
+  total_cost: 'total_cost',
+  cost: 'total_cost',
+  charge: 'total_cost',
+  price_total: 'total_cost',
+
+  // description
+  description: 'description',
+  details: 'description',
+  note: 'description',
+  memo: 'description',
+  item_description: 'description',
+  product: 'description',
+};
+
+function normalizeHeaderKey(header: string): string {
+  // Normalize: trim, lowercase, collapse spaces/underscores/dashes
+  const basic = header.trim().toLowerCase();
+  const collapsed = basic
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w ]+/g, '')
+    .replace(/ +/g, ' ')
+    .trim();
+  const canonical =
+    HEADER_SYNONYMS[collapsed] ||
+    HEADER_SYNONYMS[basic] ||
+    HEADER_SYNONYMS[basic.replace(/[\s-_]+/g, ' ')] ||
+    collapsed.replace(/\s+/g, '_');
+  return canonical;
+}
 
 function splitCsvLine(line: string): string[] {
   const result: string[] = [];
@@ -55,7 +129,7 @@ function splitCsvLine(line: string): string[] {
 }
 
 function normalizeHeader(header: string): string {
-  return header.trim().toLowerCase();
+  return normalizeHeaderKey(header);
 }
 
 export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
@@ -72,13 +146,20 @@ export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
   const headerLine = splitCsvLine(allLines[0]);
   const normalizedHeader = headerLine.map((cell) => normalizeHeader(cell));
 
-  for (const required of REQUIRED_HEADERS) {
+  // Validate core requirements
+  for (const required of CORE_REQUIRED_HEADERS) {
     if (!normalizedHeader.includes(required)) {
       errors.push(`Missing required column "${required}".`);
     }
   }
+  const hasUnitPrice = normalizedHeader.includes('unit_price');
+  const hasTotalCost = normalizedHeader.includes('total_cost');
+  if (!hasUnitPrice && !hasTotalCost) {
+    errors.push('CSV must include either "unit_price" or "total_cost" column.');
+  }
 
-  const headerMap = normalizedHeader.map((header) => NORMALIZED_HEADER_LOOKUP[header] || header);
+  // Identity map: normalizedHeader already mapped to canonical keys
+  const headerMap = normalizedHeader.map((header) => header);
 
   for (let lineIndex = 1; lineIndex < allLines.length; lineIndex += 1) {
     const originalLine = allLines[lineIndex];
@@ -92,20 +173,40 @@ export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
       record[headerMap[i]] = cells[i]?.trim() ?? '';
     }
 
-    if (!record.client_name && !record.metric_type && !record.description) {
+    if (
+      !record.client_name &&
+      !record.metric_type &&
+      !record.description &&
+      !record.total_cost &&
+      !record.unit_price
+    ) {
       continue;
     }
 
-    const quantity = Number(record.quantity);
-    const unitPrice = Number(record.unit_price);
+    // Quantity: default to 1 if missing and only total is provided
+    let quantity = Number(record.quantity);
+    if (record.quantity === '' || Number.isNaN(quantity)) {
+      quantity = 1;
+    }
 
-    if (Number.isNaN(quantity)) {
-      errors.push(`Row ${lineIndex}: quantity must be a number.`);
+    // Parse price fields
+    const rawUnitPrice = record.unit_price;
+    const rawTotal = record.total_cost;
+    let unitPrice = Number(rawUnitPrice);
+    const total = Number(rawTotal);
+
+    // Derive unit price from total if needed
+    if ((rawUnitPrice === '' || Number.isNaN(unitPrice)) && !Number.isNaN(total)) {
+      unitPrice = total / (quantity || 1);
+    }
+
+    if (Number.isNaN(quantity) || !Number.isFinite(quantity) || quantity < 0) {
+      errors.push(`Row ${lineIndex}: quantity must be a non-negative number.`);
       continue;
     }
 
     if (Number.isNaN(unitPrice)) {
-      errors.push(`Row ${lineIndex}: unit_price must be a number.`);
+      errors.push(`Row ${lineIndex}: unit price/total is missing or invalid.`);
       continue;
     }
 
@@ -116,6 +217,7 @@ export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
       quantity,
       unit_price: unitPrice,
       description: record.description,
+      total_cost: !Number.isNaN(total) ? total : undefined,
     });
   }
 
@@ -126,4 +228,3 @@ export async function parseUsageCsvFile(file: File | Blob): Promise<UsageCsvPars
   const text = await file.text();
   return parseUsageCsvText(text);
 }
-
