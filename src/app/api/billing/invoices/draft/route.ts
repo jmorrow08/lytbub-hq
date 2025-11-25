@@ -208,14 +208,24 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      const parsed = new Date(raw);
-      if (Number.isNaN(parsed.getTime())) {
+      // Parse YYYY-MM-DD in local time to avoid UTC shift
+      const [yStr, mStr, dStr] = raw.split('-');
+      const y = Number(yStr);
+      const m = Number(mStr);
+      const d = Number(dStr);
+      const localDate = new Date(y, m - 1, d);
+      if (
+        !Number.isFinite(y) ||
+        !Number.isFinite(m) ||
+        !Number.isFinite(d) ||
+        Number.isNaN(localDate.getTime())
+      ) {
         return NextResponse.json(
           { error: 'dueDate is invalid. Expected format: YYYY-MM-DD.' },
           { status: 400 },
         );
       }
-      dueDateUnix = Math.floor(parsed.getTime() / 1000);
+      dueDateUnix = Math.floor(localDate.getTime() / 1000);
     }
 
     const stripeInvoice = await createDraftInvoice({
