@@ -58,6 +58,12 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
   timeStyle: 'short',
 });
 
+type BillingStatus = {
+  type: 'success' | 'error';
+  message: string;
+  details?: string | null;
+} | null;
+
 type TabKey = 'overview' | 'billing' | 'revenue';
 
 export default function FinancePage() {
@@ -96,10 +102,8 @@ export default function FinancePage() {
   const [finalizingId, setFinalizingId] = useState<string | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
-  const [billingStatus, setBillingStatus] = useState<{
-    type: 'success' | 'error';
-    message: string;
-  } | null>(null);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus>(null);
+  const [showBillingDetails, setShowBillingDetails] = useState(false);
   const [periodForm, setPeriodForm] = useState({
     projectId: '',
     periodStart: '',
@@ -176,9 +180,11 @@ export default function FinancePage() {
       setInvoices(invoiceList);
       setSelectedProjectId((prev) => prev || (clientList[0]?.id ?? ''));
     } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unable to load billing data.';
       setBillingStatus({
         type: 'error',
-        message: error instanceof Error ? error.message : 'Unable to load billing data.',
+        message: 'Unable to load billing data.',
+        details: detail,
       });
     } finally {
       setLoadingBilling(false);
@@ -211,6 +217,10 @@ export default function FinancePage() {
     };
     resolveTimezone();
   }, []);
+
+  useEffect(() => {
+    setShowBillingDetails(false);
+  }, [billingStatus]);
 
   const triggerToast = (type: 'success' | 'error', message: string) => {
     if (toastTimer.current) {
@@ -296,6 +306,16 @@ export default function FinancePage() {
     return clientProjectOptions.find((project) => project.id === formData.projectId) ?? null;
   }, [clientProjectOptions, formData.projectId]);
 
+  const formatMethodDisplay = (
+    method?: string | null,
+    brand?: string | null,
+    last4?: string | null,
+  ) => {
+    if (!method && !brand && !last4) return '—';
+    const label = brand || method || '—';
+    return last4 ? `${label} ••••${last4}` : label;
+  };
+
   const handleDeletePayment = async (paymentId: string) => {
     if (typeof window !== 'undefined') {
       const confirmed = window.confirm('Delete this payment entry? This action cannot be undone.');
@@ -331,8 +351,12 @@ export default function FinancePage() {
       await loadBillingPeriodsOnly();
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to import usage data.';
-      setBillingStatus({ type: 'error', message });
+      const detail = error instanceof Error ? error.message : 'Failed to import usage data.';
+      setBillingStatus({
+        type: 'error',
+        message: 'Failed to import usage data.',
+        details: detail,
+      });
       throw error;
     } finally {
       setUsageUploading(false);
@@ -356,8 +380,12 @@ export default function FinancePage() {
       setBillingStatus({ type: 'success', message: 'Draft invoice created.' });
       await loadInvoicesOnly();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to create draft invoice.';
-      setBillingStatus({ type: 'error', message });
+      const detail = error instanceof Error ? error.message : 'Unable to create draft invoice.';
+      setBillingStatus({
+        type: 'error',
+        message: 'Unable to create draft invoice.',
+        details: detail,
+      });
       throw error;
     } finally {
       setInvoiceGenerating(false);
@@ -377,7 +405,11 @@ export default function FinancePage() {
       await loadInvoicesOnly();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to finalize invoice.';
-      setBillingStatus({ type: 'error', message });
+      setBillingStatus({
+        type: 'error',
+        message: 'Unable to finalize invoice.',
+        details: message,
+      });
     } finally {
       setFinalizingId(null);
     }
@@ -391,7 +423,11 @@ export default function FinancePage() {
       await loadInvoicesOnly();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to update invoice.';
-      setBillingStatus({ type: 'error', message });
+      setBillingStatus({
+        type: 'error',
+        message: 'Unable to update invoice.',
+        details: message,
+      });
     } finally {
       setMarkingId(null);
     }
@@ -400,7 +436,11 @@ export default function FinancePage() {
   const handleCreatePeriod = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!periodForm.projectId || !periodForm.periodStart || !periodForm.periodEnd) {
-      setBillingStatus({ type: 'error', message: 'Complete the billing period form.' });
+      setBillingStatus({
+        type: 'error',
+        message: 'Complete the billing period form.',
+        details: 'Project, period start, and period end are required.',
+      });
       return;
     }
     setCreatingPeriod(true);
@@ -421,7 +461,11 @@ export default function FinancePage() {
       await loadBillingPeriodsOnly();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create billing period.';
-      setBillingStatus({ type: 'error', message });
+      setBillingStatus({
+        type: 'error',
+        message: 'Unable to create billing period.',
+        details: message,
+      });
     } finally {
       setCreatingPeriod(false);
     }
@@ -445,7 +489,11 @@ export default function FinancePage() {
       setBillingClients(refreshedClients);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to update subscription.';
-      setBillingStatus({ type: 'error', message });
+      setBillingStatus({
+        type: 'error',
+        message: 'Unable to update subscription.',
+        details: message,
+      });
       throw error;
     } finally {
       setUpdatingSubscriptionId(null);
@@ -776,6 +824,7 @@ export default function FinancePage() {
                       <th className="py-2 text-left">Client</th>
                       <th className="py-2 text-left">Project</th>
                       <th className="py-2 text-left">Description</th>
+                      <th className="py-2 text-left">Paid With</th>
                       <th className="py-2 text-left">Amount</th>
                       <th className="py-2 text-left">Type</th>
                       <th className="py-2 text-left">Status</th>
@@ -791,6 +840,13 @@ export default function FinancePage() {
                         <td className="py-3">{payment.client?.name || '—'}</td>
                         <td className="py-3">{payment.project?.name || '—'}</td>
                         <td className="py-3">{payment.description || '—'}</td>
+                        <td className="py-3">
+                          {formatMethodDisplay(
+                            payment.payment_method_used,
+                            payment.payment_brand,
+                            payment.payment_last4,
+                          )}
+                        </td>
                         <td className="py-3 font-medium">
                           {currencyFormatter.format(payment.amount_cents / 100)}
                         </td>
@@ -841,7 +897,23 @@ export default function FinancePage() {
                   : 'border-red-500/40 bg-red-500/10 text-red-600'
               }`}
             >
-              {billingStatus.message}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <span>{billingStatus.message}</span>
+                {billingStatus.type === 'error' && billingStatus.details && (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold underline decoration-dotted"
+                    onClick={() => setShowBillingDetails((prev) => !prev)}
+                  >
+                    {showBillingDetails ? 'Hide details' : 'View details'}
+                  </button>
+                )}
+              </div>
+              {showBillingDetails && billingStatus.type === 'error' && billingStatus.details && (
+                <pre className="mt-2 whitespace-pre-wrap rounded bg-background/60 p-2 text-xs text-foreground/80">
+                  {billingStatus.details}
+                </pre>
+              )}
             </div>
           )}
 

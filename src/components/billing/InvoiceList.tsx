@@ -26,6 +26,17 @@ function formatYmdAsLocaleDate(ymd: string): string {
   return date.toLocaleDateString();
 }
 
+function formatMethodDetail(
+  method?: string | null,
+  brand?: string | null,
+  last4?: string | null,
+): string | null {
+  if (!method && !brand && !last4) return null;
+  const label = brand || method;
+  if (!label) return null;
+  return last4 ? `${label} ••••${last4}` : label;
+}
+
 export function InvoiceList({
   invoices,
   onFinalize,
@@ -72,86 +83,99 @@ export function InvoiceList({
                 </tr>
               </thead>
               <tbody>
-                {sortedInvoices.map((invoice) => (
-                  <tr key={invoice.id} className="border-b border-border/40">
-                    <td className="py-3">
-                      <div className="font-semibold">{invoice.invoice_number}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(invoice.created_at).toLocaleString()}
-                      </div>
-                    </td>
-                    <td className="py-3">
-                      {clientLookup?.[invoice.project_id] ?? invoice.project_id}
-                    </td>
-                    <td className="py-3">
-                      {invoice.collection_method === 'send_invoice' && invoice.due_date
-                        ? formatYmdAsLocaleDate(invoice.due_date)
-                        : '—'}
-                    </td>
-                    <td className="py-3 font-semibold">
-                      {currency.format(invoice.total_cents / 100)}
-                    </td>
-                    <td className="py-3 capitalize">
-                      <StatusBadge status={invoice.status} />
-                    </td>
-                    <td className="py-3 capitalize">
-                      {invoice.payment_method_type}
-                      {invoice.collection_method === 'send_invoice' ? ' (invoice)' : ' (auto)'}
-                    </td>
-                    <td className="py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        {invoice.stripe_hosted_url && (
-                          <Button asChild size="sm" variant="outline">
-                            <a href={invoice.stripe_hosted_url} target="_blank" rel="noreferrer">
-                              View
-                            </a>
-                          </Button>
+                {sortedInvoices.map((invoice) => {
+                  const paidVia = formatMethodDetail(
+                    invoice.payment_method_used,
+                    invoice.payment_brand,
+                    invoice.payment_last4,
+                  );
+
+                  return (
+                    <tr key={invoice.id} className="border-b border-border/40">
+                      <td className="py-3">
+                        <div className="font-semibold">{invoice.invoice_number}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(invoice.created_at).toLocaleString()}
+                        </div>
+                      </td>
+                      <td className="py-3">
+                        {clientLookup?.[invoice.project_id] ?? invoice.project_id}
+                      </td>
+                      <td className="py-3">
+                        {invoice.collection_method === 'send_invoice' && invoice.due_date
+                          ? formatYmdAsLocaleDate(invoice.due_date)
+                          : '—'}
+                      </td>
+                      <td className="py-3 font-semibold">
+                        {currency.format(invoice.total_cents / 100)}
+                      </td>
+                      <td className="py-3 capitalize">
+                        <StatusBadge status={invoice.status} />
+                      </td>
+                      <td className="py-3 capitalize">
+                        {invoice.payment_method_type}
+                        {invoice.collection_method === 'send_invoice' ? ' (invoice)' : ' (auto)'}
+                        {invoice.status === 'paid' && paidVia && (
+                          <span className="block text-xs font-normal normal-case text-muted-foreground">
+                            Paid via {paidVia}
+                          </span>
                         )}
-                        {invoice.status !== 'paid' && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => handleFinalize(invoice.id)}
-                              disabled={finalizingId === invoice.id}
-                            >
-                              {finalizingId === invoice.id ? 'Finalizing…' : 'Finalize'}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          {invoice.stripe_hosted_url && (
+                            <Button asChild size="sm" variant="outline">
+                              <a href={invoice.stripe_hosted_url} target="_blank" rel="noreferrer">
+                                View
+                              </a>
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleMarkOffline(invoice.id)}
-                              disabled={markingId === invoice.id}
-                            >
-                              {markingId === invoice.id ? 'Marking…' : 'Mark Paid (Offline)'}
-                            </Button>
-                            {invoice.status === 'draft' && (
+                          )}
+                          {invoice.status !== 'paid' && (
+                            <>
                               <Button
                                 size="sm"
-                                variant="destructive"
-                                onClick={async () => {
-                                  if (typeof window !== 'undefined') {
-                                    const yes = window.confirm(
-                                      'Delete this draft invoice? This cannot be undone.',
-                                    );
-                                    if (!yes) return;
-                                  }
-                                  try {
-                                    await deleteDraftInvoice(invoice.id);
-                                  } catch {
-                                    // ignoring here; parent may refresh list elsewhere
-                                  }
-                                }}
+                                variant="secondary"
+                                onClick={() => handleFinalize(invoice.id)}
+                                disabled={finalizingId === invoice.id}
                               >
-                                Delete
+                                {finalizingId === invoice.id ? 'Finalizing…' : 'Finalize'}
                               </Button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleMarkOffline(invoice.id)}
+                                disabled={markingId === invoice.id}
+                              >
+                                {markingId === invoice.id ? 'Marking…' : 'Mark Paid (Offline)'}
+                              </Button>
+                              {invoice.status === 'draft' && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={async () => {
+                                    if (typeof window !== 'undefined') {
+                                      const yes = window.confirm(
+                                        'Delete this draft invoice? This cannot be undone.',
+                                      );
+                                      if (!yes) return;
+                                    }
+                                    try {
+                                      await deleteDraftInvoice(invoice.id);
+                                    } catch {
+                                      // ignoring here; parent may refresh list elsewhere
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -25,19 +25,6 @@ function getStripe(): Stripe {
   return stripeClient;
 }
 
-function getAllowedPaymentMethodTypes():
-  | Stripe.InvoiceCreateParams.PaymentSettings.PaymentMethodType[]
-  | Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodType[] {
-  const raw =
-    process.env.STRIPE_PAYMENT_METHOD_TYPES ||
-    process.env.NEXT_PUBLIC_STRIPE_PAYMENT_METHOD_TYPES ||
-    'card,us_bank_account,link';
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean) as any;
-}
-
 type CustomerPayload = {
   customerId?: string | null;
   email?: string | null;
@@ -122,9 +109,6 @@ export async function createDraftInvoice({
   description,
 }: DraftInvoiceArgs): Promise<Stripe.Invoice> {
   const stripe = getStripe();
-  const paymentMethodTypes = getAllowedPaymentMethodTypes() as
-    | Stripe.InvoiceCreateParams.PaymentSettings.PaymentMethodType[]
-    | undefined;
   return stripe.invoices.create({
     customer: customerId,
     subscription: subscriptionId ?? undefined,
@@ -135,14 +119,6 @@ export async function createDraftInvoice({
     footer,
     description,
     automatic_tax: { enabled: true },
-    payment_settings:
-      collectionMethod === 'charge_automatically'
-        ? {
-            payment_method_types: paymentMethodTypes,
-          }
-        : paymentMethodTypes
-        ? { payment_method_types: paymentMethodTypes }
-        : undefined,
   });
 }
 
@@ -220,12 +196,6 @@ export async function setupSubscription({
   defaultPaymentMethod,
 }: SubscriptionArgs): Promise<Stripe.Subscription> {
   const stripe = getStripe();
-  const paymentMethodTypes = ((getAllowedPaymentMethodTypes() as
-    | Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodType[]
-    | undefined) || [
-    'card',
-    'us_bank_account',
-  ]) as Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodType[];
 
   const price = await stripe.prices.create({
     currency: 'usd',
@@ -251,7 +221,6 @@ export async function setupSubscription({
     automatic_tax: { enabled: true },
     payment_settings: {
       save_default_payment_method: 'on_subscription',
-      payment_method_types: paymentMethodTypes,
     },
   });
 }

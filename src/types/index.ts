@@ -72,6 +72,9 @@ export interface Payment {
   stripe_id?: string | null;
   url: string;
   status?: string | null;
+  payment_method_used?: string | null;
+  payment_brand?: string | null;
+  payment_last4?: string | null;
   created_at: string;
 }
 
@@ -150,6 +153,9 @@ export interface Invoice {
   status: InvoiceStatus;
   stripe_hosted_url?: string | null;
   stripe_pdf_url?: string | null;
+  payment_method_used?: string | null;
+  payment_brand?: string | null;
+  payment_last4?: string | null;
   metadata?: Record<string, unknown> | null;
   created_by: string;
   created_at: string;

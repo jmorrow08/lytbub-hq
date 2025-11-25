@@ -54,6 +54,7 @@ export async function POST(req: Request) {
         ok =
           (await handleCheckoutCompleted(
             event.data.object as Stripe.Checkout.Session,
+            stripe,
             supabaseAdmin,
           )) && ok;
         break;
@@ -83,11 +84,35 @@ export async function POST(req: Request) {
 
 async function handleCheckoutCompleted(
   session: Stripe.Checkout.Session,
+  stripe: Stripe,
   supabaseAdmin: SupabaseAdminClient,
 ): Promise<boolean> {
+  let summary: PaymentMethodSummary = EMPTY_PAYMENT_METHOD_SUMMARY;
+
+  const paymentIntentId =
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id;
+
+  if (paymentIntentId) {
+    try {
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ['payment_method', 'latest_charge'],
+      });
+      summary = summarizePaymentIntent(paymentIntent);
+    } catch (error) {
+      console.warn('[stripe webhook] unable to inspect payment intent', paymentIntentId, error);
+    }
+  }
+
   const { error } = await supabaseAdmin
     .from('payments')
-    .update({ status: 'paid' })
+    .update({
+      status: 'paid',
+      payment_method_used: summary.method,
+      payment_brand: summary.brand,
+      payment_last4: summary.last4,
+    })
     .eq('stripe_id', session.id);
 
   if (error) {
@@ -108,6 +133,7 @@ async function handleInvoicePaid(
   const stripeInvoiceId = invoice.id;
   let processingFeeCents = 0;
   let netAmountCents = invoice.amount_paid ?? invoice.amount_due ?? 0;
+  let paymentSummary: PaymentMethodSummary = EMPTY_PAYMENT_METHOD_SUMMARY;
 
   if (typeof invoice.charge === 'string' && invoice.charge) {
     try {
@@ -119,6 +145,7 @@ async function handleInvoicePaid(
         processingFeeCents = balanceTransaction.fee ?? 0;
         netAmountCents = balanceTransaction.net ?? netAmountCents;
       }
+      paymentSummary = summarizeCharge(charge);
     } catch (error) {
       console.warn('[stripe webhook] unable to load balance transaction', error);
     }
@@ -137,6 +164,9 @@ async function handleInvoicePaid(
       net_amount_cents: netAmountCents,
       stripe_hosted_url: invoice.hosted_invoice_url,
       stripe_pdf_url: invoice.invoice_pdf,
+      payment_method_used: paymentSummary.method,
+      payment_brand: paymentSummary.brand,
+      payment_last4: paymentSummary.last4,
       metadata: {
         ...invoice.metadata,
         stripe_event_id: invoice.id,
@@ -180,4 +210,98 @@ async function handleInvoicePaymentFailed(
     return false;
   }
   return true;
+}
+
+type PaymentMethodSummary = {
+  method: string | null;
+  brand: string | null;
+  last4: string | null;
+};
+
+const EMPTY_PAYMENT_METHOD_SUMMARY: PaymentMethodSummary = {
+  method: null,
+  brand: null,
+  last4: null,
+};
+
+function summarizePaymentIntent(paymentIntent?: Stripe.PaymentIntent | null): PaymentMethodSummary {
+  if (!paymentIntent) {
+    return EMPTY_PAYMENT_METHOD_SUMMARY;
+  }
+
+  if (paymentIntent.payment_method && typeof paymentIntent.payment_method !== 'string') {
+    return summarizePaymentMethodObject(paymentIntent.payment_method as Stripe.PaymentMethod);
+  }
+
+  if (paymentIntent.latest_charge && typeof paymentIntent.latest_charge !== 'string') {
+    return summarizeCharge(paymentIntent.latest_charge as Stripe.Charge);
+  }
+
+  if (paymentIntent.charges?.data?.length) {
+    return summarizeCharge(paymentIntent.charges.data[0]);
+  }
+
+  return EMPTY_PAYMENT_METHOD_SUMMARY;
+}
+
+function summarizePaymentMethodObject(method?: Stripe.PaymentMethod | null): PaymentMethodSummary {
+  if (!method) {
+    return EMPTY_PAYMENT_METHOD_SUMMARY;
+  }
+
+  switch (method.type) {
+    case 'card':
+      return {
+        method: 'card',
+        brand: method.card?.brand ?? null,
+        last4: method.card?.last4 ?? null,
+      };
+    case 'us_bank_account':
+      return {
+        method: 'us_bank_account',
+        brand: method.us_bank_account?.bank_name ?? null,
+        last4: method.us_bank_account?.last4 ?? null,
+      };
+    case 'link':
+      return { method: 'link', brand: 'Link', last4: null };
+    default:
+      return { method: method.type ?? null, brand: null, last4: null };
+  }
+}
+
+function summarizeCharge(charge?: Stripe.Charge | null): PaymentMethodSummary {
+  if (!charge) {
+    return EMPTY_PAYMENT_METHOD_SUMMARY;
+  }
+  return summarizeChargeDetails(charge.payment_method_details);
+}
+
+function summarizeChargeDetails(
+  details?: Stripe.Charge.PaymentMethodDetails | null,
+): PaymentMethodSummary {
+  if (!details || !details.type) {
+    return EMPTY_PAYMENT_METHOD_SUMMARY;
+  }
+
+  const type = details.type as string;
+  switch (type) {
+    case 'card':
+      return {
+        method: 'card',
+        brand: details.card?.brand ?? null,
+        last4: details.card?.last4 ?? null,
+      };
+    case 'us_bank_account':
+      return {
+        method: 'us_bank_account',
+        brand: details.us_bank_account?.bank_name ?? null,
+        last4: details.us_bank_account?.last4 ?? null,
+      };
+    case 'link':
+      return { method: 'link', brand: 'Link', last4: null };
+    case 'klarna':
+      return { method: 'klarna', brand: 'Klarna', last4: null };
+    default:
+      return { method: type, brand: null, last4: null };
+  }
 }

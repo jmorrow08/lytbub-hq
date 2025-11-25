@@ -206,15 +206,6 @@ export async function POST(req: Request) {
       process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://lytbub-hq.vercel.app';
 
     let session: Stripe.Response<Stripe.Checkout.Session>;
-    const allowedPmTypes = (
-      process.env.STRIPE_CHECKOUT_PAYMENT_METHOD_TYPES ||
-      process.env.STRIPE_PAYMENT_METHOD_TYPES ||
-      process.env.NEXT_PUBLIC_STRIPE_PAYMENT_METHOD_TYPES ||
-      'card,us_bank_account,link'
-    )
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
     try {
       session = await stripe.checkout.sessions.create({
         mode: 'payment',
@@ -229,8 +220,6 @@ export async function POST(req: Request) {
           },
         ],
         customer: projectRecord?.stripe_customer_id || undefined,
-        payment_method_types:
-          allowedPmTypes as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
         billing_address_collection: 'required',
         payment_method_collection: 'always',
         automatic_tax: { enabled: true },

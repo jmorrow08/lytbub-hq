@@ -5,8 +5,9 @@ export type UsageCsvRow = {
   quantity: number;
   unit_price: number;
   description: string;
-  // Optional total cost column supported in flexible parsing
+  // Optional totals supported in flexible parsing
   total_cost?: number;
+  total_tokens?: number;
 };
 
 export type UsageCsvParseResult = {
@@ -75,6 +76,11 @@ const HEADER_SYNONYMS: Record<string, string> = {
   cost: 'total_cost',
   charge: 'total_cost',
   price_total: 'total_cost',
+
+  // tokens
+  total_tokens: 'total_tokens',
+  'total tokens': 'total_tokens',
+  tokens: 'total_tokens',
 
   // description
   description: 'description',
@@ -217,6 +223,8 @@ export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
       continue;
     }
 
+    const totalTokens = Number(record.total_tokens);
+
     rows.push({
       client_name: record.client_name,
       date: record.date,
@@ -225,6 +233,7 @@ export function parseUsageCsvText(csvText: string): UsageCsvParseResult {
       unit_price: unitPrice,
       description: record.description,
       total_cost: !Number.isNaN(total) ? total : undefined,
+      total_tokens: !Number.isNaN(totalTokens) ? totalTokens : undefined,
     });
   }
 

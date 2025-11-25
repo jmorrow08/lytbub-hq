@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     if (rows.length === 0) {
       return NextResponse.json(
         { error: 'No usage rows detected in file.', details: parseErrors },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -97,58 +97,97 @@ export async function POST(req: Request) {
     }
 
     if (period.client_id && period.client_id !== project.client_id) {
-      return NextResponse.json({ error: 'Billing period does not belong to this client.' }, { status: 400 });
-    }
-
-    const normalizedRows = [];
-    for (const row of rows) {
-      const parsedDate = new Date(row.date);
-      if (Number.isNaN(parsedDate.getTime())) {
-        parseErrors.push(`Invalid date "${row.date}"`);
-        continue;
-      }
-
-      const quantity = Number(row.quantity);
-      if (!Number.isFinite(quantity) || quantity < 0) {
-        parseErrors.push(`Invalid quantity "${row.quantity}"`);
-        continue;
-      }
-
-      const unitPriceCents = Math.round(Number(row.unit_price) * 100);
-      if (!Number.isFinite(unitPriceCents) || unitPriceCents < 0) {
-        parseErrors.push(`Invalid unit price "${row.unit_price}"`);
-        continue;
-      }
-
-      normalizedRows.push({
-        project_id: projectId,
-        billing_period_id: billingPeriodId,
-        event_date: parsedDate.toISOString().slice(0, 10),
-        metric_type: row.metric_type || 'usage',
-        quantity,
-        unit_price_cents: unitPriceCents,
-        description: row.description || `${row.metric_type || 'Usage'} ${row.date}`,
-        metadata: { client_name: row.client_name },
-        created_by: user.id,
-      });
-    }
-
-    if (normalizedRows.length === 0) {
       return NextResponse.json(
-        { error: 'No valid rows to import.', details: parseErrors },
-        { status: 400 }
+        { error: 'Billing period does not belong to this client.' },
+        { status: 400 },
       );
     }
 
-    const { error: insertError } = await supabase.from('usage_events').insert(normalizedRows);
+    let totalCostCents = 0;
+    let totalTokens = 0;
+    let validRows = 0;
+    let firstDate: Date | null = null;
+    let lastDate: Date | null = null;
+
+    rows.forEach((row, index) => {
+      const parsedDate = row.date ? new Date(row.date) : null;
+      if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
+        parseErrors.push(`Row ${index + 1}: invalid date "${row.date}"`);
+        return;
+      }
+
+      const explicitTotal = typeof row.total_cost === 'number' ? row.total_cost : undefined;
+      const derivedTotal = Number.isFinite(row.unit_price * row.quantity)
+        ? row.unit_price * row.quantity
+        : undefined;
+      const costDollars = explicitTotal ?? derivedTotal;
+      if (typeof costDollars !== 'number' || !Number.isFinite(costDollars) || costDollars <= 0) {
+        parseErrors.push(`Row ${index + 1}: missing or invalid cost.`);
+        return;
+      }
+
+      const costCents = Math.round(costDollars * 100);
+      totalCostCents += costCents;
+
+      const tokensValue =
+        typeof row.total_tokens === 'number' && Number.isFinite(row.total_tokens)
+          ? row.total_tokens
+          : 0;
+      totalTokens += tokensValue;
+
+      validRows += 1;
+      if (!firstDate || parsedDate < firstDate) firstDate = parsedDate;
+      if (!lastDate || parsedDate > lastDate) lastDate = parsedDate;
+    });
+
+    if (validRows === 0 || totalCostCents <= 0) {
+      return NextResponse.json(
+        { error: 'No valid rows to import.', details: parseErrors },
+        { status: 400 },
+      );
+    }
+
+    const dateFormatter = (date: Date | null) =>
+      date ? date.toISOString().slice(0, 10) : undefined;
+    const startDate = dateFormatter(firstDate);
+    const endDate = dateFormatter(lastDate);
+    const tokenSegment =
+      totalTokens > 0
+        ? `${Intl.NumberFormat('en-US').format(Math.round(totalTokens))} tokens`
+        : 'cost import';
+    const rangeSegment =
+      startDate && endDate ? `${startDate} → ${endDate}` : startDate || endDate || 'usage';
+    const description = `AI usage ${rangeSegment} (${validRows} rows; ${tokenSegment})`;
+
+    const aggregateRow = {
+      project_id: projectId,
+      billing_period_id: billingPeriodId,
+      event_date: endDate || new Date().toISOString().slice(0, 10),
+      metric_type: 'ai_usage',
+      quantity: 1,
+      unit_price_cents: totalCostCents,
+      description,
+      metadata: {
+        total_rows: validRows,
+        total_tokens: totalTokens,
+        sum_cost_cents: totalCostCents,
+        date_start: startDate,
+        date_end: endDate,
+        warnings: parseErrors,
+      },
+      created_by: user.id,
+    };
+
+    const { error: insertError } = await supabase.from('usage_events').insert(aggregateRow);
     if (insertError) {
       console.error('[api/billing/import-usage] insert failed', insertError);
       return NextResponse.json({ error: 'Failed to import usage rows.' }, { status: 500 });
     }
 
     return NextResponse.json({
-      imported: normalizedRows.length,
+      imported: validRows,
       warnings: parseErrors,
+      totals: { cost_cents: totalCostCents, tokens: totalTokens },
       project: { id: project.id, name: project.name },
     });
   } catch (error) {
