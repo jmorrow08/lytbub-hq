@@ -17,6 +17,7 @@ type SubscriptionManagerProps = {
       paymentMethodType?: 'card' | 'ach' | 'offline';
       autoPayEnabled?: boolean;
       achDiscountCents?: number;
+      notifyUsageEvents?: boolean;
     },
   ) => Promise<void>;
   updatingId?: string | null;
@@ -55,6 +56,7 @@ export function SubscriptionManager({
     const paymentMethodType = formData.get('payment_method_type') as 'card' | 'ach' | 'offline';
     const baseRetainerInput = Number(formData.get('base_retainer') || 0);
     const discountInput = Number(formData.get('ach_discount') || 5);
+    const notifyUsageEvents = formData.get('notify_usage_events') === 'on';
 
     const baseRetainerCents = Number.isFinite(baseRetainerInput)
       ? Math.round(baseRetainerInput * 100)
@@ -68,6 +70,7 @@ export function SubscriptionManager({
         autoPayEnabled,
         paymentMethodType,
         achDiscountCents,
+        notifyUsageEvents,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to update subscription.');
@@ -232,6 +235,23 @@ export function SubscriptionManager({
                       disabled={readOnly}
                     />
                   </div>
+                </div>
+
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id={`notify-${client.id}`}
+                    name="notify_usage_events"
+                    defaultChecked={Boolean(client.notify_usage_events)}
+                    className="mt-0.5 h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                    disabled={readOnly}
+                  />
+                  <label htmlFor={`notify-${client.id}`} className="text-sm">
+                    Usage notifications
+                    <p className="text-xs text-muted-foreground">
+                      Enable to unlock quick usage summaries you can share with the client.
+                    </p>
+                  </label>
                 </div>
 
                 <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3 text-xs text-primary">

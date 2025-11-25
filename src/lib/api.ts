@@ -40,6 +40,10 @@ import type {
   PerformanceMetrics,
   FocusLog,
   FocusMode,
+  PendingInvoiceItem,
+  CreatePendingInvoiceItemInput,
+  UpdatePendingInvoiceItemInput,
+  QuickInvoiceResult,
 } from '@/types';
 
 type TaskQueryOptions = {
@@ -572,24 +576,87 @@ export const getUsageEvents = async (billingPeriodId: string): Promise<UsageEven
   return data.events ?? [];
 };
 
+export const getPendingInvoiceItems = async (
+  options: {
+    projectId?: string;
+    clientId?: string;
+    status?: 'pending' | 'billed' | 'voided' | 'all';
+    limit?: number;
+  } = {},
+): Promise<PendingInvoiceItem[]> => {
+  const params = new URLSearchParams();
+  if (options.projectId) params.set('projectId', options.projectId);
+  if (options.clientId) params.set('clientId', options.clientId);
+  if (options.status) params.set('status', options.status);
+  if (typeof options.limit === 'number') params.set('limit', String(options.limit));
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const data = await authedRequest<{ items: PendingInvoiceItem[] }>(
+    `/api/billing/pending-items${suffix}`,
+  );
+  return data.items ?? [];
+};
+
+export const createPendingInvoiceItems = async (
+  payload: CreatePendingInvoiceItemInput | CreatePendingInvoiceItemInput[],
+): Promise<PendingInvoiceItem[]> => {
+  const body = Array.isArray(payload) ? { items: payload } : payload;
+  const data = await authedRequest<{ items: PendingInvoiceItem[] }>('/api/billing/pending-items', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  return data.items ?? [];
+};
+
+export const updatePendingInvoiceItem = async (
+  itemId: string,
+  updates: UpdatePendingInvoiceItemInput,
+): Promise<PendingInvoiceItem> => {
+  const data = await authedRequest<{ item: PendingInvoiceItem }>(
+    `/api/billing/pending-items/${itemId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    },
+  );
+  return data.item;
+};
+
 export const importUsageCsv = async (params: {
   projectId: string;
   billingPeriodId: string;
   file: File;
-}): Promise<{ imported: number; warnings?: string[] }> => {
+}): Promise<{ imported: number; warnings?: string[]; pendingItem?: PendingInvoiceItem }> => {
   const formData = new FormData();
   formData.append('projectId', params.projectId);
   formData.append('billingPeriodId', params.billingPeriodId);
   formData.append('file', params.file);
 
-  const data = await authedRequest<{ imported: number; warnings?: string[] }>(
-    '/api/billing/import-usage',
-    {
-      method: 'POST',
-      body: formData,
-      isFormData: true,
-    },
-  );
+  const data = await authedRequest<{
+    imported: number;
+    warnings?: string[];
+    pendingItem?: PendingInvoiceItem;
+  }>('/api/billing/import-usage', {
+    method: 'POST',
+    body: formData,
+    isFormData: true,
+  });
+  return data;
+};
+
+export const createQuickInvoice = async (payload: {
+  projectId: string;
+  pendingItemIds: string[];
+  includeRetainer?: boolean;
+  collectionMethod?: 'auto' | 'charge_automatically' | 'send_invoice';
+  dueDate?: string;
+  memo?: string;
+  clientId?: string;
+  finalize?: boolean;
+}): Promise<QuickInvoiceResult> => {
+  const data = await authedRequest<QuickInvoiceResult>('/api/billing/quick-invoice', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
   return data;
 };
 
@@ -617,6 +684,7 @@ export const createDraftInvoice = async (payload: {
   manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
   collectionMethod?: 'charge_automatically' | 'send_invoice';
   dueDate?: string; // YYYY-MM-DD
+  pendingItemIds?: string[];
 }): Promise<Invoice> => {
   const data = await authedRequest<{ invoice: Invoice }>(`/api/billing/invoices/draft`, {
     method: 'POST',
@@ -685,6 +753,7 @@ export const updateSubscriptionSettings = async (payload: {
   autoPayEnabled?: boolean;
   paymentMethodType?: 'card' | 'ach' | 'offline';
   achDiscountCents?: number;
+  notifyUsageEvents?: boolean;
 }): Promise<Project> => {
   const data = await authedRequest<{ project: Project }>(`/api/billing/subscriptions`, {
     method: 'PATCH',

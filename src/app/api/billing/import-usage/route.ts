@@ -182,10 +182,51 @@ export async function POST(req: Request) {
       created_by: user.id,
     };
 
-    const { error: insertError } = await supabase.from('usage_events').insert(aggregateRow);
-    if (insertError) {
+    const { data: usageEvent, error: insertError } = await supabase
+      .from('usage_events')
+      .insert(aggregateRow)
+      .select('id')
+      .single();
+    if (insertError || !usageEvent) {
       console.error('[api/billing/import-usage] insert failed', insertError);
       return NextResponse.json({ error: 'Failed to import usage rows.' }, { status: 500 });
+    }
+
+    const pendingPayload = {
+      created_by: user.id,
+      project_id: projectId,
+      client_id: project.client_id,
+      source_type: 'usage',
+      source_ref_id: usageEvent.id,
+      description,
+      quantity: 1,
+      unit_price_cents: totalCostCents,
+      metadata: {
+        billing_period_id: billingPeriodId,
+        usage_event_id: usageEvent.id,
+        total_rows: validRows,
+        total_tokens: totalTokens,
+        sum_cost_cents: totalCostCents,
+        date_start: startDate,
+        date_end: endDate,
+        warnings: parseErrors,
+      },
+    };
+
+    const { data: pendingItem, error: pendingError } = await supabase
+      .from('pending_invoice_items')
+      .insert(pendingPayload)
+      .select('*, project:projects(*), client:clients(*)')
+      .single();
+
+    if (pendingError || !pendingItem) {
+      console.error('[api/billing/import-usage] pending insert failed', pendingError);
+      // best-effort cleanup
+      await supabase.from('usage_events').delete().eq('id', usageEvent.id);
+      return NextResponse.json(
+        { error: 'Failed to queue usage charges. No data was imported.' },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({
@@ -193,6 +234,7 @@ export async function POST(req: Request) {
       warnings: parseErrors,
       totals: { cost_cents: totalCostCents, tokens: totalTokens },
       project: { id: project.id, name: project.name },
+      pendingItem,
     });
   } catch (error) {
     console.error('[api/billing/import-usage] unexpected error', error);

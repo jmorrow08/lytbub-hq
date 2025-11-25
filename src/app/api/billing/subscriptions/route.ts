@@ -11,6 +11,7 @@ type SubscriptionUpdatePayload = {
   autoPayEnabled?: boolean;
   paymentMethodType?: 'card' | 'ach' | 'offline';
   achDiscountCents?: number;
+  notifyUsageEvents?: boolean;
 };
 
 export async function PATCH(req: Request) {
@@ -100,6 +101,9 @@ export async function PATCH(req: Request) {
     }
     if (typeof payload.achDiscountCents === 'number') {
       updates.ach_discount_cents = Math.max(0, payload.achDiscountCents);
+    }
+    if (typeof payload.notifyUsageEvents === 'boolean') {
+      updates.notify_usage_events = payload.notifyUsageEvents;
     }
 
     // Determine effective subscription + base retainer after this update

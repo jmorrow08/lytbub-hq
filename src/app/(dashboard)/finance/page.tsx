@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   deletePayment,
-  getClients,
   getClientProjects,
   getPayments,
   // Billing
@@ -21,6 +20,8 @@ import {
   finalizeInvoice,
   markInvoicePaidOffline,
   updateSubscriptionSettings,
+  getPendingInvoiceItems,
+  createQuickInvoice,
   // Revenue
   getRevenue,
   createRevenue,
@@ -29,24 +30,25 @@ import {
 } from '@/lib/api';
 import type {
   BillingPeriod,
-  CheckoutSessionResponse,
-  Client,
   CreateRevenueData,
   Invoice,
   Payment,
+  PendingInvoiceItem,
   Project,
+  QuickInvoiceResult,
   Revenue,
   UpdateRevenueData,
 } from '@/types';
-import { Loader2, Copy, ExternalLink, Trash2, DollarSign, Plus, Pencil, Trash } from 'lucide-react';
+import { Loader2, Trash2, DollarSign, Plus, Pencil, Trash } from 'lucide-react';
 import { runFinanceBackfills } from '@/lib/maintenance';
-import { executeStripeCheckout } from '@/lib/payments';
 import { getActiveTimezone, getMonthRangeUTC } from '@/lib/timezone';
 import { supabase } from '@/lib/supabaseClient';
 import { UsageImportForm } from '@/components/billing/UsageImportForm';
 import { InvoiceBuilder } from '@/components/billing/InvoiceBuilder';
 import { SubscriptionManager } from '@/components/billing/SubscriptionManager';
 import { InvoiceList } from '@/components/billing/InvoiceList';
+import { PendingItemsTable } from '@/components/billing/PendingItemsTable';
+import { cn } from '@/lib/utils';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -66,6 +68,30 @@ type BillingStatus = {
 
 type TabKey = 'overview' | 'billing' | 'revenue';
 
+type OverviewEntry = {
+  id: string;
+  kind: 'checkout' | 'invoice';
+  createdAt: string;
+  clientName: string;
+  projectName: string;
+  description: string;
+  amountCents: number;
+  status: string;
+  paymentDisplay: string;
+  link?: string | null;
+  pdfUrl?: string | null;
+};
+
+type UsageNotificationEntry = {
+  projectId: string;
+  projectName: string;
+  clientName: string;
+  pendingTotalCents: number;
+  itemCount: number;
+  lastPendingAt: string;
+  message: string;
+};
+
 export default function FinancePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -73,22 +99,26 @@ export default function FinancePage() {
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
   // Overview (Payments) state
-  const [clients, setClients] = useState<Client[]>([]);
-  const [clientProjects, setClientProjects] = useState<Project[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loadingOverview, setLoadingOverview] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [linkResult, setLinkResult] = useState<CheckoutSessionResponse | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [formData, setFormData] = useState({
-    amount: '',
-    description: '',
-    clientId: '',
-    projectId: '',
-  });
+
+  // Quick invoice state
+  const [quickInvoiceProjectId, setQuickInvoiceProjectId] = useState('');
+  const [quickIncludeRetainer, setQuickIncludeRetainer] = useState(false);
+  const [quickCollectionMethod, setQuickCollectionMethod] = useState<
+    'auto' | 'charge_automatically' | 'send_invoice'
+  >('auto');
+  const [quickDueDate, setQuickDueDate] = useState('');
+  const [quickMemo, setQuickMemo] = useState('');
+  const [quickInvoiceLoading, setQuickInvoiceLoading] = useState(false);
+  const [quickInvoiceError, setQuickInvoiceError] = useState<string | null>(null);
+  const [quickInvoiceResult, setQuickInvoiceResult] = useState<QuickInvoiceResult | null>(null);
+  const lastQuickProjectIdRef = useRef<string | null>(null);
+  const [copiedUsageProjectId, setCopiedUsageProjectId] = useState<string | null>(null);
 
   // Billing state
   const [billingClients, setBillingClients] = useState<Project[]>([]);
@@ -111,6 +141,9 @@ export default function FinancePage() {
     notes: '',
   });
   const [creatingPeriod, setCreatingPeriod] = useState(false);
+  const [pendingItems, setPendingItems] = useState<PendingInvoiceItem[]>([]);
+  const [loadingPendingItems, setLoadingPendingItems] = useState(true);
+  const [selectedPendingItemIds, setSelectedPendingItemIds] = useState<string[]>([]);
 
   // Revenue state
   const [revenue, setRevenue] = useState<Revenue[]>([]);
@@ -122,8 +155,6 @@ export default function FinancePage() {
   const [editingRevenueEntry, setEditingRevenueEntry] = useState<Revenue | null>(null);
   const [deletingRevenueId, setDeletingRevenueId] = useState<string | null>(null);
   const [activeTimezone, setActiveTimezone] = useState('America/New_York');
-
-  const hasClients = useMemo(() => clients.length > 0, [clients]);
 
   // Tab routing sync
   useEffect(() => {
@@ -146,18 +177,8 @@ export default function FinancePage() {
     setLoadingOverview(true);
     setError(null);
     try {
-      const [paymentsData, clientData, clientList] = await Promise.all([
-        getPayments(),
-        getClientProjects(),
-        getClients(),
-      ]);
+      const paymentsData = await getPayments();
       setPayments(paymentsData);
-      setClientProjects(clientData);
-      setClients(clientList);
-      setFormData((prev) => ({
-        ...prev,
-        clientId: prev.clientId || clientList[0]?.id || '',
-      }));
     } catch (err) {
       console.error(err);
       setError('Unable to load finance data. Please ensure you are signed in.');
@@ -191,6 +212,21 @@ export default function FinancePage() {
     }
   }, []);
 
+  const refreshPendingItems = useCallback(async () => {
+    setLoadingPendingItems(true);
+    try {
+      const pending = await getPendingInvoiceItems();
+      setPendingItems(pending);
+      setSelectedPendingItemIds((prev) =>
+        prev.filter((id) => pending.some((item) => item.id === id)),
+      );
+    } catch (error) {
+      console.error('[finance] Unable to load pending invoice items', error);
+    } finally {
+      setLoadingPendingItems(false);
+    }
+  }, []);
+
   // Revenue loaders
   const fetchRevenue = async () => {
     try {
@@ -208,7 +244,8 @@ export default function FinancePage() {
     // Load all tabs upfront so switching is instant
     loadBillingData();
     fetchRevenue();
-  }, [loadBillingData]);
+    refreshPendingItems();
+  }, [loadBillingData, refreshPendingItems]);
 
   useEffect(() => {
     const resolveTimezone = async () => {
@@ -221,6 +258,40 @@ export default function FinancePage() {
   useEffect(() => {
     setShowBillingDetails(false);
   }, [billingStatus]);
+
+  useEffect(() => {
+    if (quickInvoiceProjectId) return;
+    if (pendingItems.length > 0) {
+      setQuickInvoiceProjectId(pendingItems[0].project_id);
+      return;
+    }
+    if (billingClients.length > 0) {
+      setQuickInvoiceProjectId(billingClients[0].id);
+    }
+  }, [billingClients, pendingItems, quickInvoiceProjectId]);
+
+  useEffect(() => {
+    if (!quickInvoiceProjectId) {
+      setQuickIncludeRetainer(false);
+      setSelectedPendingItemIds([]);
+      lastQuickProjectIdRef.current = null;
+      return;
+    }
+    const project = billingClients.find((client) => client.id === quickInvoiceProjectId);
+    if (lastQuickProjectIdRef.current !== quickInvoiceProjectId) {
+      setQuickIncludeRetainer(
+        Boolean(project?.base_retainer_cents && project.base_retainer_cents > 0),
+      );
+      lastQuickProjectIdRef.current = quickInvoiceProjectId;
+    }
+    setSelectedPendingItemIds((prev) =>
+      prev.filter((id) =>
+        pendingItems.some((item) => item.id === id && item.project_id === quickInvoiceProjectId),
+      ),
+    );
+    setQuickInvoiceError(null);
+    setQuickInvoiceResult(null);
+  }, [quickInvoiceProjectId, billingClients, pendingItems]);
 
   const triggerToast = (type: 'success' | 'error', message: string) => {
     if (toastTimer.current) {
@@ -239,73 +310,6 @@ export default function FinancePage() {
   }, []);
 
   // Overview handlers
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const amountValue = parseFloat(formData.amount);
-
-    if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      setError('Enter a positive payment amount.');
-      return;
-    }
-    if (!formData.clientId) {
-      setError('Select a client.');
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-    setLinkResult(null);
-
-    try {
-      const projectSelection = selectedProject ?? null;
-      const checkout = await executeStripeCheckout(
-        amountValue,
-        formData.description,
-        selectedClient ? { id: selectedClient.id, name: selectedClient.name } : null,
-        projectSelection ? { id: projectSelection.id, name: projectSelection.name } : null,
-      );
-
-      setLinkResult(checkout);
-      setFormData((prev) => ({
-        amount: '',
-        description: '',
-        clientId: prev.clientId,
-        projectId: '',
-      }));
-      loadFinanceData();
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : 'Failed to create payment link');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const copyToClipboard = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      triggerToast('success', 'Checkout link copied to clipboard.');
-    } catch (err) {
-      console.error('Clipboard error', err);
-      triggerToast('error', 'Unable to copy link. Please copy manually.');
-    }
-  };
-
-  const selectedClient = useMemo(() => {
-    if (!formData.clientId) return null;
-    return clients.find((client) => client.id === formData.clientId) ?? null;
-  }, [clients, formData.clientId]);
-
-  const clientProjectOptions = useMemo(() => {
-    if (!formData.clientId) return clientProjects;
-    return clientProjects.filter((project) => project.client_id === formData.clientId);
-  }, [clientProjects, formData.clientId]);
-
-  const selectedProject = useMemo(() => {
-    if (!formData.projectId) return null;
-    return clientProjectOptions.find((project) => project.id === formData.projectId) ?? null;
-  }, [clientProjectOptions, formData.projectId]);
-
   const formatMethodDisplay = (
     method?: string | null,
     brand?: string | null,
@@ -314,6 +318,110 @@ export default function FinancePage() {
     if (!method && !brand && !last4) return '—';
     const label = brand || method || '—';
     return last4 ? `${label} ••••${last4}` : label;
+  };
+
+  const quickInvoiceProject = useMemo(() => {
+    if (!quickInvoiceProjectId) return null;
+    return billingClients.find((project) => project.id === quickInvoiceProjectId) ?? null;
+  }, [billingClients, quickInvoiceProjectId]);
+
+  const quickInvoicePendingItems = useMemo(() => {
+    if (!quickInvoiceProjectId) return [];
+    return pendingItems
+      .filter((item) => item.project_id === quickInvoiceProjectId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [pendingItems, quickInvoiceProjectId]);
+
+  const selectedPendingItems = useMemo(
+    () => pendingItems.filter((item) => selectedPendingItemIds.includes(item.id)),
+    [pendingItems, selectedPendingItemIds],
+  );
+
+  const quickPendingTotalCents = selectedPendingItems.reduce((sum, item) => {
+    const quantity = Number(item.quantity ?? 1) || 1;
+    const unitPrice = item.unit_price_cents ?? 0;
+    const amount = item.amount_cents ?? Math.round(quantity * unitPrice);
+    return sum + amount;
+  }, 0);
+
+  const quickRetainerCents =
+    quickIncludeRetainer && quickInvoiceProject?.base_retainer_cents
+      ? quickInvoiceProject.base_retainer_cents
+      : 0;
+
+  const quickTotalCents = quickPendingTotalCents + quickRetainerCents;
+  const quickRequiresDueDate = quickCollectionMethod === 'send_invoice';
+
+  const toggleQuickPendingItem = (itemId: string) => {
+    setQuickInvoiceError(null);
+    setSelectedPendingItemIds((prev) =>
+      prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId],
+    );
+  };
+
+  const toggleSelectAllQuickItems = () => {
+    if (!quickInvoiceProjectId) {
+      setSelectedPendingItemIds([]);
+      return;
+    }
+    setQuickInvoiceError(null);
+    const projectItemIds = quickInvoicePendingItems.map((item) => item.id);
+    const allSelected =
+      projectItemIds.length > 0 &&
+      projectItemIds.every((id) => selectedPendingItemIds.includes(id));
+    if (allSelected) {
+      setSelectedPendingItemIds((prev) => prev.filter((id) => !projectItemIds.includes(id)));
+    } else {
+      setSelectedPendingItemIds(projectItemIds);
+    }
+  };
+
+  const handleQuickInvoiceSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!quickInvoiceProjectId) {
+      setQuickInvoiceError('Select a project.');
+      return;
+    }
+    const project = billingClients.find((client) => client.id === quickInvoiceProjectId);
+    if (!project) {
+      setQuickInvoiceError('Selected project could not be found.');
+      return;
+    }
+    const hasSelection = selectedPendingItemIds.length > 0;
+    if (!hasSelection && (!quickIncludeRetainer || !project.base_retainer_cents)) {
+      setQuickInvoiceError('Select at least one pending item or include the retainer.');
+      return;
+    }
+    if (quickRequiresDueDate && !quickDueDate) {
+      setQuickInvoiceError('Set a due date for invoices that will be sent to the client.');
+      return;
+    }
+
+    setQuickInvoiceLoading(true);
+    setQuickInvoiceResult(null);
+    setQuickInvoiceError(null);
+    try {
+      const result = await createQuickInvoice({
+        projectId: quickInvoiceProjectId,
+        pendingItemIds: selectedPendingItemIds,
+        includeRetainer: quickIncludeRetainer,
+        collectionMethod: quickCollectionMethod,
+        dueDate: quickRequiresDueDate ? quickDueDate : undefined,
+        memo: quickMemo.trim() || undefined,
+      });
+      setQuickInvoiceResult(result);
+      triggerToast('success', 'Quick invoice created.');
+      setQuickMemo('');
+      setQuickDueDate('');
+      setSelectedPendingItemIds([]);
+      await Promise.all([refreshPendingItems(), loadInvoicesOnly()]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create quick invoice.';
+      setQuickInvoiceError(message);
+      triggerToast('error', message);
+    } finally {
+      setQuickInvoiceLoading(false);
+    }
   };
 
   const handleDeletePayment = async (paymentId: string) => {
@@ -349,6 +457,7 @@ export default function FinancePage() {
         message: `Imported ${result.imported} usage rows.`,
       });
       await loadBillingPeriodsOnly();
+      await refreshPendingItems();
       return result;
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Failed to import usage data.';
@@ -376,6 +485,7 @@ export default function FinancePage() {
     manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
     collectionMethod?: 'charge_automatically' | 'send_invoice';
     dueDate?: string;
+    pendingItemIds?: string[];
   }) => {
     setInvoiceGenerating(true);
     try {
@@ -383,6 +493,7 @@ export default function FinancePage() {
       setDraftInvoice(invoice);
       setBillingStatus({ type: 'success', message: 'Draft invoice created.' });
       await loadInvoicesOnly();
+      await refreshPendingItems();
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unable to create draft invoice.';
       setBillingStatus({
@@ -516,6 +627,105 @@ export default function FinancePage() {
     });
     return map;
   }, [billingClients]);
+
+  const overviewEntries = useMemo<OverviewEntry[]>(() => {
+    const entries: OverviewEntry[] = payments.map((payment) => ({
+      id: payment.id,
+      kind: 'checkout',
+      createdAt: payment.created_at,
+      clientName: payment.client?.name || '—',
+      projectName: payment.project?.name || '—',
+      description: payment.description || 'Checkout payment',
+      amountCents: payment.amount_cents,
+      status: payment.status || 'Pending',
+      paymentDisplay: formatMethodDisplay(
+        payment.payment_method_used,
+        payment.payment_brand,
+        payment.payment_last4,
+      ),
+      link: payment.url,
+      pdfUrl: null,
+    }));
+
+    for (const invoice of invoices) {
+      if (invoice.status !== 'paid') continue;
+      const metadata = (invoice.metadata ?? {}) as Record<string, unknown>;
+      const paidAtMeta = typeof metadata.paid_at === 'string' ? metadata.paid_at : null;
+      const createdAt = paidAtMeta || invoice.updated_at || invoice.created_at;
+      entries.push({
+        id: invoice.id,
+        kind: 'invoice',
+        createdAt,
+        clientName: invoice.client?.name || '—',
+        projectName: clientLookup[invoice.project_id] ?? invoice.project_id,
+        description: `Invoice ${invoice.invoice_number}`,
+        amountCents: invoice.total_cents,
+        status: invoice.status,
+        paymentDisplay: formatMethodDisplay(
+          invoice.payment_method_used,
+          invoice.payment_brand,
+          invoice.payment_last4,
+        ),
+        link: invoice.stripe_hosted_url ?? invoice.stripe_pdf_url ?? null,
+        pdfUrl: invoice.stripe_pdf_url ?? null,
+      });
+    }
+
+    return entries
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 12);
+  }, [payments, invoices, clientLookup]);
+
+  const usageNotificationEntries = useMemo<UsageNotificationEntry[]>(() => {
+    return billingClients
+      .filter((project) => project.notify_usage_events)
+      .map((project) => {
+        const projectPending = pendingItems
+          .filter((item) => item.project_id === project.id)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        if (projectPending.length === 0) return null;
+        const totalCents = projectPending.reduce((sum, item) => {
+          const quantity = Number(item.quantity ?? 1) || 1;
+          const unitPrice = item.unit_price_cents ?? 0;
+          const amount = item.amount_cents ?? Math.round(quantity * unitPrice);
+          return sum + amount;
+        }, 0);
+        const latest = projectPending[0];
+        const clientName =
+          project.client?.name ||
+          project.client?.company_name ||
+          (project.client_id ? clientLookup[project.client_id] : 'Client');
+        const projectName = project.name || 'Project';
+        const message = `Usage update for ${projectName}: ${projectPending.length} pending item${
+          projectPending.length === 1 ? '' : 's'
+        } totaling ${currencyFormatter.format(totalCents / 100)}. Latest entry ${
+          latest.description ? `"${latest.description}"` : 'added'
+        } on ${new Date(latest.created_at).toLocaleDateString()}.`;
+        return {
+          projectId: project.id,
+          projectName,
+          clientName,
+          pendingTotalCents: totalCents,
+          itemCount: projectPending.length,
+          lastPendingAt: latest.created_at,
+          message,
+        };
+      })
+      .filter((entry): entry is UsageNotificationEntry => Boolean(entry))
+      .sort((a, b) => new Date(b.lastPendingAt).getTime() - new Date(a.lastPendingAt).getTime());
+  }, [billingClients, pendingItems, clientLookup]);
+
+  const handleCopyUsageSummary = async (entry: UsageNotificationEntry) => {
+    try {
+      await navigator.clipboard.writeText(entry.message);
+      triggerToast('success', 'Usage summary copied to clipboard.');
+      setCopiedUsageProjectId(entry.projectId);
+      setTimeout(() => setCopiedUsageProjectId(null), 2000);
+    } catch (error) {
+      console.error('Clipboard error', error);
+      triggerToast('error', 'Unable to copy summary. Please copy manually.');
+    }
+  };
 
   // Revenue handlers
   const startEditingRevenue = (entry: Revenue) => {
@@ -667,159 +877,277 @@ export default function FinancePage() {
 
       {activeTab === 'overview' && (
         <>
-          <div className="grid gap-6 lg:grid-cols-2">
+          {usageNotificationEntries.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Create Payment Link</CardTitle>
+                <CardTitle>Usage Notifications</CardTitle>
               </CardHeader>
-              <CardContent>
-                <form className="space-y-4" onSubmit={handleSubmit}>
-                  <div>
-                    <label htmlFor="amount" className="block text-sm font-medium mb-1">
-                      Amount (USD) *
-                    </label>
-                    <Input
-                      id="amount"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="150.00"
-                      value={formData.amount}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="description" className="block text-sm font-medium mb-1">
-                      Description
-                    </label>
-                    <Input
-                      id="description"
-                      placeholder="Maintenance retainer, Cleveland Clean, etc."
-                      value={formData.description}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, description: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="clientId" className="block text-sm font-medium mb-1">
-                      Client *
-                    </label>
-                    <select
-                      id="clientId"
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={formData.clientId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          clientId: e.target.value,
-                          projectId: '',
-                        }))
-                      }
-                      required
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Projects with usage notifications enabled. Copy a summary to keep clients in the
+                  loop.
+                </p>
+                <div className="space-y-3">
+                  {usageNotificationEntries.map((entry) => (
+                    <div
+                      key={entry.projectId}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 px-4 py-3"
                     >
-                      <option value="">Select client</option>
-                      {clients.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.name}
-                        </option>
-                      ))}
-                    </select>
-                    {!hasClients && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        No clients yet.{' '}
-                        <Link className="underline" href="/clients">
-                          Create a client
-                        </Link>{' '}
-                        to start billing.
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label htmlFor="projectId" className="block text-sm font-medium mb-1">
-                      Client Project (optional)
-                    </label>
-                    <select
-                      id="projectId"
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={formData.projectId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, projectId: e.target.value }))
-                      }
-                      disabled={!formData.clientId || clientProjectOptions.length === 0}
-                    >
-                      <option value="">No project</option>
-                      {clientProjectOptions.map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {project.name}
-                        </option>
-                      ))}
-                    </select>
-                    {formData.clientId && clientProjectOptions.length === 0 && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        No projects linked to this client yet. Add one from the Projects tab.
-                      </p>
-                    )}
-                    {selectedClient && (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Billing for:{' '}
-                        <span className="font-medium text-foreground">{selectedClient.name}</span>
-                      </p>
-                    )}
-                  </div>
-                  <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Creating...' : 'Generate Stripe Link'}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            {linkResult && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Latest Checkout Session</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Share this link with the client or open it in a new tab to test the Stripe flow.
-                  </p>
-                  <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                    <span className="truncate">{linkResult.url}</span>
-                    <div className="flex items-center space-x-2 pl-3">
+                      <div>
+                        <p className="font-semibold">{entry.projectName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {entry.clientName} • {entry.itemCount} pending item
+                          {entry.itemCount === 1 ? '' : 's'} totaling{' '}
+                          {currencyFormatter.format(entry.pendingTotalCents / 100)}
+                        </p>
+                      </div>
                       <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => copyToClipboard(linkResult.url)}
-                        title="Copy link"
+                        size="sm"
+                        variant={copiedUsageProjectId === entry.projectId ? 'secondary' : 'outline'}
+                        onClick={() => handleCopyUsageSummary(entry)}
                       >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button type="button" variant="outline" size="icon" asChild>
-                        <Link href={linkResult.url} target="_blank">
-                          <ExternalLink className="h-4 w-4" />
-                        </Link>
+                        {copiedUsageProjectId === entry.projectId ? 'Copied!' : 'Copy summary'}
                       </Button>
                     </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Invoice</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <form className="space-y-4" onSubmit={handleQuickInvoiceSubmit}>
+                <div>
+                  <label htmlFor="quick-project" className="block text-sm font-medium mb-1">
+                    Project
+                  </label>
+                  <select
+                    id="quick-project"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={quickInvoiceProjectId}
+                    onChange={(event) => setQuickInvoiceProjectId(event.target.value)}
+                    required
+                  >
+                    <option value="">Select project</option>
+                    {billingClients.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">Pending Items</label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleSelectAllQuickItems}
+                      disabled={quickInvoicePendingItems.length === 0}
+                    >
+                      {quickInvoicePendingItems.length > 0 &&
+                      quickInvoicePendingItems.every((item) =>
+                        selectedPendingItemIds.includes(item.id),
+                      )
+                        ? 'Clear selection'
+                        : 'Select all'}
+                    </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Payment ID: {linkResult.paymentId}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                  <div className="max-h-56 overflow-y-auto rounded-md border border-dashed px-3 py-2">
+                    {quickInvoiceProjectId ? (
+                      quickInvoicePendingItems.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No pending items for this project.
+                        </p>
+                      ) : (
+                        quickInvoicePendingItems.map((item) => {
+                          const amount =
+                            (item.amount_cents ??
+                              Math.round(
+                                (Number(item.quantity ?? 1) || 1) * (item.unit_price_cents ?? 0),
+                              )) / 100;
+                          const isSelected = selectedPendingItemIds.includes(item.id);
+                          return (
+                            <label
+                              key={item.id}
+                              className={cn(
+                                'flex items-start justify-between gap-3 rounded-md px-2 py-2 text-sm transition-colors',
+                                isSelected ? 'bg-accent/30' : 'hover:bg-muted/50',
+                              )}
+                            >
+                              <span className="flex-1 space-y-1">
+                                <span className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                                    checked={isSelected}
+                                    onChange={() => toggleQuickPendingItem(item.id)}
+                                  />
+                                  <span className="font-medium">{item.description}</span>
+                                </span>
+                                <span className="block text-xs text-muted-foreground">
+                                  Created {new Date(item.created_at).toLocaleDateString()}
+                                </span>
+                              </span>
+                              <span className="whitespace-nowrap font-semibold">
+                                {currencyFormatter.format(amount)}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Select a project to view pending items.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="quick-include-retainer"
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                    checked={quickIncludeRetainer && quickRetainerCents > 0}
+                    onChange={(event) => setQuickIncludeRetainer(event.target.checked)}
+                    disabled={!quickInvoiceProject || !quickInvoiceProject.base_retainer_cents}
+                  />
+                  <label htmlFor="quick-include-retainer" className="text-sm text-muted-foreground">
+                    Include retainer{' '}
+                    {quickInvoiceProject?.base_retainer_cents
+                      ? `(${currencyFormatter.format(
+                          (quickInvoiceProject.base_retainer_cents || 0) / 100,
+                        )})`
+                      : '(no retainer configured)'}
+                  </label>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label htmlFor="quick-collection" className="block text-sm font-medium mb-1">
+                      Collection Method
+                    </label>
+                    <select
+                      id="quick-collection"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={quickCollectionMethod}
+                      onChange={(event) =>
+                        setQuickCollectionMethod(
+                          event.target.value as 'auto' | 'charge_automatically' | 'send_invoice',
+                        )
+                      }
+                    >
+                      <option value="auto">Auto (choose based on billing settings)</option>
+                      <option value="charge_automatically">Charge saved payment method</option>
+                      <option value="send_invoice">Send invoice (client pays manually)</option>
+                    </select>
+                  </div>
+                  {quickRequiresDueDate && (
+                    <div>
+                      <label htmlFor="quick-due-date" className="block text-sm font-medium mb-1">
+                        Due Date
+                      </label>
+                      <Input
+                        id="quick-due-date"
+                        type="date"
+                        value={quickDueDate}
+                        onChange={(event) => setQuickDueDate(event.target.value)}
+                        required={quickRequiresDueDate}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="quick-memo" className="block text-sm font-medium mb-1">
+                    Memo (optional)
+                  </label>
+                  <Input
+                    id="quick-memo"
+                    placeholder="Add internal notes for this invoice"
+                    value={quickMemo}
+                    onChange={(event) => setQuickMemo(event.target.value)}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-border/60 bg-muted/40 px-4 py-3 text-sm">
+                  <div>
+                    <p>
+                      Pending total:{' '}
+                      <span className="font-semibold">
+                        {currencyFormatter.format(quickPendingTotalCents / 100)}
+                      </span>
+                    </p>
+                    {quickIncludeRetainer && quickRetainerCents > 0 && (
+                      <p>
+                        Retainer:{' '}
+                        <span className="font-semibold">
+                          {currencyFormatter.format(quickRetainerCents / 100)}
+                        </span>
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Invoice total{' '}
+                      <span className="font-semibold text-foreground">
+                        {currencyFormatter.format(quickTotalCents / 100)}
+                      </span>
+                    </p>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={
+                      quickInvoiceLoading ||
+                      !quickInvoiceProjectId ||
+                      quickTotalCents <= 0 ||
+                      (quickRequiresDueDate && !quickDueDate)
+                    }
+                  >
+                    {quickInvoiceLoading ? 'Creating…' : 'Create Quick Invoice'}
+                  </Button>
+                </div>
+              </form>
+
+              {quickInvoiceError && <p className="text-sm text-red-500">{quickInvoiceError}</p>}
+
+              {quickInvoiceResult && (
+                <div className="space-y-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-400">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">
+                      Invoice {quickInvoiceResult.invoice.invoice_number} created.
+                    </p>
+                    {quickInvoiceResult.invoice.stripe_hosted_url && (
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={quickInvoiceResult.invoice.stripe_hosted_url} target="_blank">
+                          View invoice
+                        </Link>
+                      </Button>
+                    )}
+                  </div>
+                  {quickInvoiceResult.needsPaymentMethod && (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      This customer needs a saved payment method. Send them the billing portal link
+                      from the Billing tab.
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Recent Payments</CardTitle>
             </CardHeader>
             <CardContent className="overflow-x-auto">
-              {payments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No payments logged yet. Generate a checkout link to see it here.
-                </p>
+              {overviewEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No recent payments or invoices yet.</p>
               ) : (
                 <table className="min-w-full text-sm">
                   <thead className="text-xs uppercase text-muted-foreground">
@@ -836,49 +1164,66 @@ export default function FinancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {payments.map((payment) => (
-                      <tr key={payment.id} className="border-b border-border/40">
-                        <td className="py-3">
-                          {dateFormatter.format(new Date(payment.created_at))}
-                        </td>
-                        <td className="py-3">{payment.client?.name || '—'}</td>
-                        <td className="py-3">{payment.project?.name || '—'}</td>
-                        <td className="py-3">{payment.description || '—'}</td>
-                        <td className="py-3">
-                          {formatMethodDisplay(
-                            payment.payment_method_used,
-                            payment.payment_brand,
-                            payment.payment_last4,
-                          )}
-                        </td>
+                    {overviewEntries.map((entry) => (
+                      <tr key={entry.id} className="border-b border-border/40">
+                        <td className="py-3">{dateFormatter.format(new Date(entry.createdAt))}</td>
+                        <td className="py-3">{entry.clientName}</td>
+                        <td className="py-3">{entry.projectName}</td>
+                        <td className="py-3">{entry.description}</td>
+                        <td className="py-3">{entry.paymentDisplay}</td>
                         <td className="py-3 font-medium">
-                          {currencyFormatter.format(payment.amount_cents / 100)}
+                          {currencyFormatter.format(entry.amountCents / 100)}
                         </td>
-                        <td className="py-3 capitalize">{payment.link_type.replace('_', ' ')}</td>
-                        <td className="py-3">{payment.status || 'Pending'}</td>
+                        <td className="py-3 capitalize">
+                          {entry.kind === 'invoice' ? 'Invoice' : 'Checkout'}
+                        </td>
+                        <td className="py-3 capitalize">{entry.status}</td>
                         <td className="py-3">
                           <div className="flex items-center justify-end gap-2">
-                            <Button asChild size="sm" variant="outline">
-                              <Link href={payment.url} target="_blank">
-                                Open
-                              </Link>
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDeletePayment(payment.id)}
-                              disabled={deletingPaymentId === payment.id}
-                            >
-                              {deletingPaymentId === payment.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <Trash2 className="h-4 w-4" />
-                                  <span>Delete</span>
-                                </>
-                              )}
-                            </Button>
+                            {entry.kind === 'checkout' ? (
+                              <>
+                                {entry.link && (
+                                  <Button asChild size="sm" variant="outline">
+                                    <Link href={entry.link} target="_blank">
+                                      Open
+                                    </Link>
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeletePayment(entry.id)}
+                                  disabled={deletingPaymentId === entry.id}
+                                >
+                                  {deletingPaymentId === entry.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <Trash2 className="h-4 w-4" />
+                                      <span>Delete</span>
+                                    </>
+                                  )}
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                {entry.link && (
+                                  <Button asChild size="sm" variant="outline">
+                                    <Link href={entry.link} target="_blank">
+                                      View
+                                    </Link>
+                                  </Button>
+                                )}
+                                {entry.pdfUrl && (
+                                  <Button asChild size="sm" variant="ghost">
+                                    <Link href={entry.pdfUrl} target="_blank">
+                                      PDF
+                                    </Link>
+                                  </Button>
+                                )}
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -934,6 +1279,21 @@ export default function FinancePage() {
                 onSelectClient={setSelectedProjectId}
                 selectedProjectId={selectedProjectId}
               />
+
+              <PendingItemsTable
+                items={pendingItems}
+                projects={billingClients}
+                loading={loadingPendingItems}
+                onRefresh={refreshPendingItems}
+                onSelectionChange={setSelectedPendingItemIds}
+              />
+              {selectedPendingItemIds.length > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  {selectedPendingItemIds.length}{' '}
+                  {selectedPendingItemIds.length === 1 ? 'item is' : 'items are'} queued for a quick
+                  invoice.
+                </p>
+              )}
 
               <Card>
                 <CardHeader>
@@ -1024,6 +1384,9 @@ export default function FinancePage() {
 
                 <InvoiceBuilder
                   billingPeriods={filteredPeriods}
+                  projects={billingClients}
+                  pendingItems={pendingItems}
+                  onRefreshPendingItems={refreshPendingItems}
                   onGenerate={handleGenerateInvoice}
                   generating={invoiceGenerating}
                   draftInvoice={draftInvoice}

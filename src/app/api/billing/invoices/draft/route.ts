@@ -8,6 +8,7 @@ import {
   DraftLine,
   PaymentMethodType,
 } from '@/lib/billing-calculator';
+import { mapPendingToLineType, toNumber } from '@/lib/billing/quickInvoiceUtils';
 
 type DraftInvoicePayload = {
   billingPeriodId: string;
@@ -21,6 +22,7 @@ type DraftInvoicePayload = {
   }>;
   collectionMethod?: 'charge_automatically' | 'send_invoice';
   dueDate?: string; // YYYY-MM-DD
+  pendingItemIds?: string[];
 };
 
 export async function POST(req: Request) {
@@ -101,16 +103,51 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Client is missing for this project.' }, { status: 400 });
     }
 
-    const { data: usageEvents, error: usageError } = await supabase
-      .from('usage_events')
-      .select('id, metric_type, quantity, unit_price_cents, description')
-      .eq('billing_period_id', period.id)
-      .eq('project_id', project.id)
-      .eq('created_by', user.id);
+    const pendingItemIds = Array.isArray(payload.pendingItemIds)
+      ? payload.pendingItemIds
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .map((value) => value.trim())
+      : [];
 
-    if (usageError) {
-      console.error('[api/billing/invoices/draft] usage fetch failed', usageError);
-      return NextResponse.json({ error: 'Unable to load usage data.' }, { status: 500 });
+    let pendingItems: Array<{
+      id: string;
+      project_id: string;
+      client_id: string | null;
+      description: string | null;
+      quantity: number | null;
+      unit_price_cents: number;
+      source_type: string | null;
+    }> = [];
+
+    if (pendingItemIds.length > 0) {
+      const { data, error: pendingError } = await supabase
+        .from('pending_invoice_items')
+        .select('id, project_id, client_id, description, quantity, unit_price_cents, source_type')
+        .in('id', pendingItemIds)
+        .eq('created_by', user.id)
+        .eq('status', 'pending');
+
+      if (pendingError) {
+        console.error('[api/billing/invoices/draft] pending lookup failed', pendingError);
+        return NextResponse.json({ error: 'Unable to load pending items.' }, { status: 500 });
+      }
+
+      if (!data || data.length !== pendingItemIds.length) {
+        return NextResponse.json(
+          { error: 'One or more pending items are missing or already billed.' },
+          { status: 400 },
+        );
+      }
+
+      const invalidPending = data.find((item) => item.project_id !== project.id);
+      if (invalidPending) {
+        return NextResponse.json(
+          { error: 'Pending items must belong to the billing period project.' },
+          { status: 400 },
+        );
+      }
+
+      pendingItems = data;
     }
 
     const baseLines: DraftLine[] = [];
@@ -123,59 +160,57 @@ export async function POST(req: Request) {
         description: `${project.name || 'Client'} Monthly Retainer`,
         quantity: 1,
         unitPriceCents: project.base_retainer_cents,
+        metadata: { source: 'retainer' },
       });
     }
 
-    if (usageEvents && usageEvents.length > 0) {
-      const aggregation = new Map<
-        string,
-        { description: string; quantity: number; unit_price_cents: number }
-      >();
-
-      for (const event of usageEvents) {
-        const unitPrice = Number(event.unit_price_cents) || 0;
-        const key = `${event.metric_type || 'usage'}:${unitPrice}:${event.description || 'Usage'}`;
-        if (!aggregation.has(key)) {
-          aggregation.set(key, {
-            description:
-              event.description ||
-              `${event.metric_type ? `${event.metric_type} usage` : 'Usage charge'}`,
-            quantity: 0,
-            unit_price_cents: unitPrice,
-          });
-        }
-        const group = aggregation.get(key)!;
-        group.quantity += Number(event.quantity) || 0;
-      }
-
-      for (const group of aggregation.values()) {
+    if (pendingItems.length > 0) {
+      for (const item of pendingItems) {
+        const quantity = toNumber(item.quantity, 1);
+        const unitPrice = Number(item.unit_price_cents) || 0;
         baseLines.push({
-          lineType: 'usage',
-          description: group.description,
-          quantity: group.quantity,
-          unitPriceCents: group.unit_price_cents,
+          lineType: mapPendingToLineType(item.source_type),
+          description: item.description || 'Service line item',
+          quantity: quantity > 0 ? quantity : 1,
+          unitPriceCents: unitPrice,
+          metadata: {
+            pending_item_id: item.id,
+            source_type: item.source_type ?? 'manual',
+          },
         });
       }
     }
 
-    // Include any manual lines from the request (positive or negative amounts allowed)
+    const normalizedManualLines: Array<{
+      description: string;
+      quantity: number;
+      unitPriceCents: number;
+    }> = [];
+
     if (Array.isArray(payload.manualLines)) {
       for (const line of payload.manualLines) {
         const qty = Number(line.quantity ?? 1);
         const unit = Math.round(Number(line.unitPriceCents) || 0);
         if (!line.description || !Number.isFinite(qty) || !Number.isFinite(unit)) continue;
-        baseLines.push({
-          lineType: 'project',
-          description: line.description,
+        const sanitized = {
+          description: line.description.trim(),
           quantity: qty,
           unitPriceCents: unit,
+        };
+        normalizedManualLines.push(sanitized);
+        baseLines.push({
+          lineType: 'project',
+          description: sanitized.description,
+          quantity: sanitized.quantity,
+          unitPriceCents: sanitized.unitPriceCents,
+          metadata: { manual_entry: 'true' },
         });
       }
     }
 
     if (baseLines.length === 0) {
       return NextResponse.json(
-        { error: 'No line items available for this billing period.' },
+        { error: 'Select pending items, add manual lines, or include the retainer.' },
         { status: 400 },
       );
     }
@@ -231,34 +266,59 @@ export async function POST(req: Request) {
       dueDateUnix = Math.floor(localDate.getTime() / 1000);
     }
 
+    const invoiceMetadata: Record<string, string> = {
+      billing_period_id: period.id,
+      project_id: project.id,
+      include_retainer: includeBaseRetainer ? 'true' : 'false',
+    };
+    if (pendingItems.length > 0) {
+      invoiceMetadata.pending_item_ids = pendingItems.map((item) => item.id).join(',');
+    }
+    if (payload.memo) {
+      invoiceMetadata.memo = payload.memo;
+    }
+
     const stripeInvoice = await createDraftInvoice({
       customerId: project.stripe_customer_id,
       subscriptionId: includeBaseRetainer ? project.stripe_subscription_id || undefined : undefined,
       collectionMethod,
       dueDate: dueDateUnix,
       description,
-      metadata: {
-        billing_period_id: period.id,
-        project_id: project.id,
-        include_retainer: includeBaseRetainer ? 'true' : 'false',
-      },
+      metadata: invoiceMetadata,
     });
 
     for (const line of calculatedLines) {
+      const stripeMetadata: Record<string, string> = {
+        line_type: line.lineType,
+        billing_period_id: period.id,
+      };
+      if (line.metadata?.pending_item_id) {
+        stripeMetadata.pending_item_id = String(line.metadata.pending_item_id);
+      }
+      if (line.metadata?.manual_entry) {
+        stripeMetadata.manual_entry = 'true';
+      }
       await addInvoiceLineItem({
         customerId: project.stripe_customer_id,
         invoiceId: stripeInvoice.id,
         description: line.description,
         amountCents: line.unitPriceCents,
         quantity: line.quantity,
-        metadata: {
-          line_type: line.lineType,
-          billing_period_id: period.id,
-        },
+        metadata: stripeMetadata,
       });
     }
 
     const invoiceNumber = generateInvoiceNumber(period.period_start);
+
+    const invoiceMetadataDb: Record<string, unknown> = {
+      pending_item_ids: pendingItems.map((item) => item.id),
+      pending_item_count: pendingItems.length,
+      manual_line_count: normalizedManualLines.length,
+      include_retainer: includeBaseRetainer,
+    };
+    if (payload.memo) {
+      invoiceMetadataDb.memo = payload.memo;
+    }
 
     const { data: invoiceRecord, error: invoiceError } = await supabase
       .from('invoices')
@@ -269,7 +329,7 @@ export async function POST(req: Request) {
         billing_period_id: period.id,
         stripe_invoice_id: stripeInvoice.id,
         stripe_customer_id: project.stripe_customer_id,
-        stripe_subscription_id: project.stripe_subscription_id,
+        stripe_subscription_id: includeBaseRetainer ? project.stripe_subscription_id : null,
         subtotal_cents: subtotalCents,
         tax_cents: 0,
         processing_fee_cents: calculatedLines
@@ -281,7 +341,7 @@ export async function POST(req: Request) {
         collection_method: collectionMethod,
         due_date: collectionMethod === 'send_invoice' ? payload.dueDate || null : null,
         status: 'draft',
-        metadata: { memo: payload.memo },
+        metadata: invoiceMetadataDb,
         created_by: user.id,
       })
       .select('*')
@@ -300,7 +360,11 @@ export async function POST(req: Request) {
       unit_price_cents: line.unitPriceCents,
       amount_cents: line.amountCents,
       sort_order: index,
-      metadata: line.metadata,
+      metadata: {
+        ...(line.metadata ?? {}),
+        billing_period_id: period.id,
+      },
+      pending_source_item_id: line.metadata?.pending_item_id ?? null,
       created_by: user.id,
     }));
 
@@ -325,6 +389,29 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: 'Invoice created, but line items missing.' },
         { status: 500 },
+      );
+    }
+
+    if (pendingItems.length > 0 && savedLineItems) {
+      const lineLookup = new Map<string, string>();
+      for (const line of savedLineItems) {
+        if (line.pending_source_item_id) {
+          lineLookup.set(line.pending_source_item_id, line.id);
+        }
+      }
+      const updatedAt = new Date().toISOString();
+      await Promise.all(
+        pendingItems.map((item) =>
+          supabase
+            .from('pending_invoice_items')
+            .update({
+              status: 'billed',
+              billed_invoice_id: invoiceRecord.id,
+              billed_invoice_line_item_id: lineLookup.get(item.id) ?? null,
+              updated_at: updatedAt,
+            })
+            .eq('id', item.id),
+        ),
       );
     }
 

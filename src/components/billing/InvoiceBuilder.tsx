@@ -1,14 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { BillingPeriod, Invoice } from '@/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { BillingPeriod, Invoice, PendingInvoiceItem, Project } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { addDraftInvoiceLineItem } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 type InvoiceBuilderProps = {
   billingPeriods: BillingPeriod[];
+  projects: Project[];
+  pendingItems: PendingInvoiceItem[];
+  onRefreshPendingItems: () => Promise<void>;
   onGenerate: (params: {
     billingPeriodId: string;
     includeProcessingFee: boolean;
@@ -17,6 +21,7 @@ type InvoiceBuilderProps = {
     manualLines?: Array<{ description: string; quantity?: number; unitPriceCents: number }>;
     collectionMethod?: 'charge_automatically' | 'send_invoice';
     dueDate?: string;
+    pendingItemIds?: string[];
   }) => Promise<void>;
   generating: boolean;
   draftInvoice?: Invoice | null;
@@ -26,6 +31,9 @@ const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: '
 
 export function InvoiceBuilder({
   billingPeriods,
+  projects,
+  pendingItems,
+  onRefreshPendingItems,
   onGenerate,
   generating,
   draftInvoice,
@@ -43,6 +51,8 @@ export function InvoiceBuilder({
     'charge_automatically',
   );
   const [dueDate, setDueDate] = useState('');
+  const [selectedPendingItemIds, setSelectedPendingItemIds] = useState<string[]>([]);
+  const lastProjectIdRef = useRef<string | null>(null);
 
   // Keep a live copy in sync with latest draft provided by parent
   // (e.g., after creating a new draft via onGenerate)
@@ -52,6 +62,89 @@ export function InvoiceBuilder({
     }
   }, [draftInvoice, liveInvoice]);
 
+  const selectedPeriod = useMemo(
+    () => billingPeriods.find((period) => period.id === billingPeriodId) ?? null,
+    [billingPeriods, billingPeriodId],
+  );
+
+  const projectId = selectedPeriod?.project_id ?? null;
+
+  const project = useMemo(() => {
+    if (!projectId) return null;
+    return projects.find((candidate) => candidate.id === projectId) ?? null;
+  }, [projects, projectId]);
+
+  const projectPendingItems = useMemo(() => {
+    if (!projectId) return [];
+    return pendingItems
+      .filter((item) => item.project_id === projectId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [pendingItems, projectId]);
+
+  const selectedPendingItems = useMemo(
+    () => pendingItems.filter((item) => selectedPendingItemIds.includes(item.id)),
+    [pendingItems, selectedPendingItemIds],
+  );
+
+  const pendingTotalCents = selectedPendingItems.reduce((sum, item) => {
+    const quantity = Number(item.quantity ?? 1) || 1;
+    const unitPrice = item.unit_price_cents ?? 0;
+    const amount = item.amount_cents ?? Math.round(quantity * unitPrice);
+    return sum + amount;
+  }, 0);
+
+  const manualLinesTotalCents = manualLines.reduce((sum, line) => {
+    const quantity = Number.parseFloat(line.quantity || '1');
+    const unit = Number.parseFloat(line.unitPrice || '0');
+    if (!Number.isFinite(quantity) || !Number.isFinite(unit)) return sum;
+    return sum + Math.round(quantity * unit * 100);
+  }, 0);
+
+  const retainerCents =
+    includeRetainer && project?.base_retainer_cents ? project.base_retainer_cents : 0;
+
+  const totalCents = pendingTotalCents + retainerCents + manualLinesTotalCents;
+  const selectedPendingCount = selectedPendingItemIds.length;
+  const hasManualLines = manualLinesTotalCents > 0;
+  const canSubmit = totalCents > 0 && (collectionMethod !== 'send_invoice' || Boolean(dueDate));
+
+  useEffect(() => {
+    if (!projectId) {
+      setSelectedPendingItemIds([]);
+      lastProjectIdRef.current = null;
+      return;
+    }
+    setSelectedPendingItemIds((prev) =>
+      prev.filter((id) =>
+        pendingItems.some((item) => item.id === id && item.project_id === projectId),
+      ),
+    );
+    if (lastProjectIdRef.current !== projectId) {
+      setIncludeRetainer(Boolean(project?.base_retainer_cents && project.base_retainer_cents > 0));
+      lastProjectIdRef.current = projectId;
+    }
+  }, [projectId, pendingItems, project]);
+
+  const togglePendingItem = (itemId: string) => {
+    setSelectedPendingItemIds((prev) =>
+      prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId],
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (!projectId) {
+      setSelectedPendingItemIds([]);
+      return;
+    }
+    const ids = projectPendingItems.map((item) => item.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedPendingItemIds.includes(id));
+    if (allSelected) {
+      setSelectedPendingItemIds((prev) => prev.filter((id) => !ids.includes(id)));
+    } else {
+      setSelectedPendingItemIds(ids);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -59,6 +152,36 @@ export function InvoiceBuilder({
       setError('Select a billing period.');
       return;
     }
+    if (!projectId) {
+      setError('Selected billing period is missing a project.');
+      return;
+    }
+
+    const normalizedManualLines =
+      manualLines.length > 0
+        ? manualLines
+            .filter((line) => line.description && line.unitPrice)
+            .map((line) => ({
+              description: line.description.trim(),
+              quantity: Number.parseFloat(line.quantity || '1') || 1,
+              unitPriceCents: Math.round((Number.parseFloat(line.unitPrice) || 0) * 100),
+            }))
+            .filter((line) => line.description && line.unitPriceCents > 0)
+        : [];
+
+    const hasManualLines = normalizedManualLines.length > 0;
+    const hasPendingSelection = selectedPendingItemIds.length > 0;
+
+    if (!hasPendingSelection && !hasManualLines && retainerCents <= 0) {
+      setError('Select pending items, add a manual line, or include the retainer.');
+      return;
+    }
+
+    if (collectionMethod === 'send_invoice' && !dueDate) {
+      setError('Set a due date for invoices that will be sent to the client.');
+      return;
+    }
+
     try {
       await onGenerate({
         billingPeriodId,
@@ -67,18 +190,15 @@ export function InvoiceBuilder({
         memo: memo.trim() || undefined,
         collectionMethod,
         dueDate: collectionMethod === 'send_invoice' && dueDate ? dueDate : undefined,
-        // normalize manual lines
-        manualLines:
-          manualLines.length > 0
-            ? manualLines
-                .filter((l) => l.description && l.unitPrice)
-                .map((l) => ({
-                  description: l.description,
-                  quantity: Number(l.quantity || 1),
-                  unitPriceCents: Math.round(Number(l.unitPrice) * 100),
-                }))
-            : undefined,
+        manualLines: hasManualLines ? normalizedManualLines : undefined,
+        pendingItemIds: hasPendingSelection ? selectedPendingItemIds : undefined,
       });
+      await onRefreshPendingItems();
+      setSelectedPendingItemIds([]);
+      setManualLines([]);
+      setMemo('');
+      setDueDate('');
+      setIncludeProcessingFee(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate invoice.');
     }
@@ -109,6 +229,70 @@ export function InvoiceBuilder({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Pending items for this project</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={toggleSelectAll}
+                disabled={projectPendingItems.length === 0}
+              >
+                {projectPendingItems.length > 0 &&
+                projectPendingItems.every((item) => selectedPendingItemIds.includes(item.id))
+                  ? 'Clear selection'
+                  : 'Select all'}
+              </Button>
+            </div>
+            <div className="max-h-56 overflow-y-auto rounded-md border border-dashed px-3 py-2 text-sm">
+              {!billingPeriodId ? (
+                <p className="text-muted-foreground">
+                  Select a billing period to view pending items.
+                </p>
+              ) : projectPendingItems.length === 0 ? (
+                <p className="text-muted-foreground">No pending items queued for this project.</p>
+              ) : (
+                projectPendingItems.map((item) => {
+                  const quantity = Number(item.quantity ?? 1) || 1;
+                  const unitPrice = item.unit_price_cents ?? 0;
+                  const amount = (item.amount_cents ?? Math.round(quantity * unitPrice)) / 100;
+                  const isSelected = selectedPendingItemIds.includes(item.id);
+                  return (
+                    <label
+                      key={item.id}
+                      className={cn(
+                        'flex items-start justify-between gap-3 rounded-md px-2 py-2 transition-colors',
+                        isSelected ? 'bg-accent/30' : 'hover:bg-muted/50',
+                      )}
+                    >
+                      <span className="flex-1 space-y-1">
+                        <span className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                            checked={isSelected}
+                            onChange={() => togglePendingItem(item.id)}
+                          />
+                          <span className="font-medium">{item.description}</span>
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Created {new Date(item.created_at).toLocaleDateString()}
+                        </span>
+                      </span>
+                      <span className="whitespace-nowrap font-semibold">
+                        {currency.format(amount)}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Quick add from the queue if you performed work outside the billing period.
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -275,7 +459,40 @@ export function InvoiceBuilder({
 
           {error && <p className="text-sm text-red-500">{error}</p>}
 
-          <Button type="submit" disabled={generating}>
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-border/60 bg-muted/40 px-4 py-3 text-sm">
+            <div className="space-y-1">
+              <p>
+                Pending selection:{' '}
+                <span className="font-semibold">{currency.format(pendingTotalCents / 100)}</span>
+                {selectedPendingCount > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {' '}
+                    ({selectedPendingCount} item{selectedPendingCount === 1 ? '' : 's'})
+                  </span>
+                )}
+              </p>
+              {includeRetainer && retainerCents > 0 && (
+                <p>
+                  Retainer{' '}
+                  <span className="font-semibold">{currency.format(retainerCents / 100)}</span>
+                </p>
+              )}
+              {hasManualLines && (
+                <p>
+                  Manual lines{' '}
+                  <span className="font-semibold">
+                    {currency.format(manualLinesTotalCents / 100)}
+                  </span>
+                </p>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Invoice total</p>
+              <p className="text-lg font-semibold">{currency.format(totalCents / 100)}</p>
+            </div>
+          </div>
+
+          <Button type="submit" disabled={generating || !canSubmit}>
             {generating ? 'Preparing invoice…' : 'Generate Draft Invoice'}
           </Button>
         </form>

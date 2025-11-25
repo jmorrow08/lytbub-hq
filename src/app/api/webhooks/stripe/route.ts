@@ -76,6 +76,9 @@ export async function POST(req: Request) {
           (await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice, supabaseAdmin)) &&
           ok;
         break;
+      case 'invoice.voided':
+        ok = (await handleInvoiceVoided(event.data.object as Stripe.Invoice, supabaseAdmin)) && ok;
+        break;
       default:
         // ignore unhandled events
         break;
@@ -138,8 +141,8 @@ async function handleInvoicePaid(
   stripe: Stripe,
   supabaseAdmin: SupabaseAdminClient,
 ): Promise<boolean> {
-  const ensured = await upsertInvoiceRecord(invoice, supabaseAdmin);
-  if (!ensured) {
+  const invoiceRecordId = await upsertInvoiceRecord(invoice, supabaseAdmin);
+  if (!invoiceRecordId) {
     console.warn('[stripe webhook] unable to upsert invoice before marking paid', invoice.id);
   }
 
@@ -208,15 +211,16 @@ async function handleInvoiceFinalized(
   _stripe: Stripe,
   supabaseAdmin: SupabaseAdminClient,
 ): Promise<boolean> {
-  return upsertInvoiceRecord(invoice, supabaseAdmin);
+  const invoiceRecordId = await upsertInvoiceRecord(invoice, supabaseAdmin);
+  return Boolean(invoiceRecordId);
 }
 
 async function handleInvoicePaymentFailed(
   invoice: Stripe.Invoice,
   supabaseAdmin: SupabaseAdminClient,
 ): Promise<boolean> {
-  const ensured = await upsertInvoiceRecord(invoice, supabaseAdmin);
-  if (!ensured) {
+  const invoiceRecordId = await upsertInvoiceRecord(invoice, supabaseAdmin);
+  if (!invoiceRecordId) {
     console.warn('[stripe webhook] unable to upsert invoice before marking failed', invoice.id);
   }
 
@@ -248,6 +252,62 @@ async function handleInvoicePaymentFailed(
   return true;
 }
 
+async function handleInvoiceVoided(
+  invoice: Stripe.Invoice,
+  supabaseAdmin: SupabaseAdminClient,
+): Promise<boolean> {
+  const invoiceRecordId = await upsertInvoiceRecord(invoice, supabaseAdmin);
+  if (!invoiceRecordId) {
+    console.warn('[stripe webhook] unable to upsert invoice before voiding', invoice.id);
+    return false;
+  }
+
+  const { data: lineItems, error: lineError } = await supabaseAdmin
+    .from('invoice_line_items')
+    .select('id, pending_source_item_id')
+    .eq('invoice_id', invoiceRecordId);
+
+  if (lineError) {
+    console.error('[stripe webhook] failed to fetch line items for voided invoice', lineError);
+  } else if (lineItems && lineItems.length > 0) {
+    const updatedAt = new Date().toISOString();
+    await Promise.all(
+      lineItems
+        .filter((line) => typeof line.pending_source_item_id === 'string')
+        .map((line) =>
+          supabaseAdmin
+            .from('pending_invoice_items')
+            .update({
+              status: 'pending',
+              billed_invoice_id: null,
+              billed_invoice_line_item_id: null,
+              updated_at: updatedAt,
+            })
+            .eq('id', line.pending_source_item_id as string),
+        ),
+    );
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('invoices')
+    .update({
+      status: 'void',
+      metadata: {
+        ...(invoice.metadata ?? {}),
+        voided_at: new Date().toISOString(),
+        auto_created_from_stripe: true,
+      },
+    })
+    .eq('id', invoiceRecordId);
+
+  if (updateError) {
+    console.error('[stripe webhook] failed to update voided invoice status', updateError);
+    return false;
+  }
+
+  return true;
+}
+
 type ProjectRecord = {
   id: string;
   client_id: string | null;
@@ -263,11 +323,11 @@ type ProjectRecord = {
 async function upsertInvoiceRecord(
   invoice: Stripe.Invoice,
   supabaseAdmin: SupabaseAdminClient,
-): Promise<boolean> {
+): Promise<string | null> {
   const context = await resolveProjectContext(invoice, supabaseAdmin);
   if (!context.project) {
     console.warn('[stripe webhook] unable to resolve project for invoice', invoice.id, context);
-    return false;
+    return null;
   }
 
   const ownerId =
@@ -275,7 +335,7 @@ async function upsertInvoiceRecord(
     getMetadataString(invoice.metadata, 'created_by', 'owner_id', 'user_id');
   if (!ownerId) {
     console.warn('[stripe webhook] missing owner for invoice insert', invoice.id);
-    return false;
+    return null;
   }
 
   const invoiceNumber = invoice.number || invoice.id;
@@ -325,7 +385,7 @@ async function upsertInvoiceRecord(
       invoiceId: invoice.id,
       error: existingError,
     });
-    return false;
+    return null;
   }
 
   if (existing) {
@@ -357,10 +417,10 @@ async function upsertInvoiceRecord(
         invoiceId: invoice.id,
         error: updateError,
       });
-      return false;
+      return null;
     }
 
-    return true;
+    return existing.id;
   }
 
   const insertPayload = {
@@ -398,7 +458,7 @@ async function upsertInvoiceRecord(
       invoiceId: invoice.id,
       error: insertError,
     });
-    return false;
+    return null;
   }
 
   const lineItems = Array.isArray(invoice.lines?.data) ? invoice.lines.data : [];
@@ -406,6 +466,7 @@ async function upsertInvoiceRecord(
     const linePayloads = lineItems.map((line, index) => {
       const amountCents = line.amount ?? 0;
       const quantity = line.quantity ?? 1;
+      const pendingSourceId = getMetadataString(line.metadata, 'pending_item_id', 'pending_item');
       return {
         invoice_id: inserted.id,
         line_type: inferLineType(line),
@@ -419,13 +480,15 @@ async function upsertInvoiceRecord(
         amount_cents: amountCents,
         sort_order: index,
         metadata: line.metadata ?? null,
+        pending_source_item_id: pendingSourceId,
         created_by: ownerId,
       };
     });
 
-    const { error: lineError } = await supabaseAdmin
+    const { data: insertedLines, error: lineError } = await supabaseAdmin
       .from('invoice_line_items')
-      .insert(linePayloads);
+      .insert(linePayloads)
+      .select('id, pending_source_item_id');
 
     if (lineError) {
       console.error('[stripe webhook] failed to insert invoice line items', {
@@ -433,9 +496,28 @@ async function upsertInvoiceRecord(
         error: lineError,
       });
     }
+
+    if (insertedLines && insertedLines.length > 0) {
+      const updatedAt = new Date().toISOString();
+      await Promise.all(
+        insertedLines
+          .filter((line) => typeof line.pending_source_item_id === 'string')
+          .map((line) =>
+            supabaseAdmin
+              .from('pending_invoice_items')
+              .update({
+                status: invoice.status === 'void' ? 'pending' : 'billed',
+                billed_invoice_id: inserted.id,
+                billed_invoice_line_item_id: line.id,
+                updated_at: updatedAt,
+              })
+              .eq('id', line.pending_source_item_id as string),
+          ),
+      );
+    }
   }
 
-  return true;
+  return inserted.id;
 }
 
 async function resolveProjectContext(

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { BillingPeriod, Project } from '@/types';
+import type { BillingPeriod, Project, PendingInvoiceItem } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ type UsageImportFormProps = {
     projectId: string;
     billingPeriodId: string;
     file: File;
-  }) => Promise<{ warnings?: string[] }>;
+  }) => Promise<{ warnings?: string[]; imported?: number; pendingItem?: PendingInvoiceItem }>;
   submitting: boolean;
 };
 

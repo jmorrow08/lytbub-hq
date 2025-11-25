@@ -21,6 +21,10 @@ export interface Project {
   stripe_subscription_id?: string | null;
   payment_method_type?: 'card' | 'ach' | 'offline';
   ach_discount_cents?: number | null;
+  billing_anchor_day?: number | null;
+  billing_auto_finalize?: boolean;
+  billing_default_collection_method?: 'charge_automatically' | 'send_invoice';
+  notify_usage_events?: boolean;
 }
 
 export type FocusMode = 'CORPORATE' | 'HOLISTIC';
@@ -131,6 +135,7 @@ export interface InvoiceLineItem {
   metadata?: Record<string, unknown> | null;
   created_by: string;
   created_at: string;
+  pending_source_item_id?: string | null;
 }
 
 export interface Invoice {
@@ -162,6 +167,57 @@ export interface Invoice {
   updated_at?: string | null;
   client?: Client | null;
   line_items?: InvoiceLineItem[];
+}
+
+export type PendingInvoiceSourceType = 'usage' | 'task' | 'manual';
+export type PendingInvoiceStatus = 'pending' | 'billed' | 'voided';
+
+export interface PendingInvoiceItem {
+  id: string;
+  created_by: string;
+  project_id: string;
+  client_id?: string | null;
+  source_type: PendingInvoiceSourceType;
+  source_ref_id?: string | null;
+  description: string;
+  quantity: number;
+  unit_price_cents: number;
+  amount_cents: number;
+  status: PendingInvoiceStatus;
+  billed_invoice_id?: string | null;
+  billed_invoice_line_item_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  project?: Project | null;
+  client?: Client | null;
+}
+
+export interface CreatePendingInvoiceItemInput {
+  projectId: string;
+  clientId?: string;
+  sourceType?: PendingInvoiceSourceType;
+  sourceRefId?: string;
+  description: string;
+  quantity?: number;
+  unitPriceCents: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdatePendingInvoiceItemInput {
+  description?: string;
+  quantity?: number;
+  unitPriceCents?: number;
+  status?: PendingInvoiceStatus;
+  metadata?: Record<string, unknown> | null;
+  clientId?: string | null;
+}
+
+export interface QuickInvoiceResult {
+  invoice: Invoice;
+  pendingItemIds: string[];
+  needsPaymentMethod: boolean;
+  stripe?: Record<string, unknown>;
 }
 
 export interface Client {
