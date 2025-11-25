@@ -489,35 +489,15 @@ async function upsertInvoiceRecord(
       };
     });
 
-    const { data: insertedLines, error: lineError } = await supabaseAdmin
+    const { error: lineError } = await supabaseAdmin
       .from('invoice_line_items')
-      .insert(linePayloads)
-      .select('id, pending_source_item_id');
+      .insert(linePayloads);
 
     if (lineError) {
       console.error('[stripe webhook] failed to insert invoice line items', {
         invoiceId: invoice.id,
         error: lineError,
       });
-    }
-
-    if (insertedLines && insertedLines.length > 0) {
-      const updatedAt = new Date().toISOString();
-      await Promise.all(
-        insertedLines
-          .filter((line) => typeof line.pending_source_item_id === 'string')
-          .map((line) =>
-            supabaseAdmin
-              .from('pending_invoice_items')
-              .update({
-                status: invoice.status === 'void' ? 'pending' : 'billed',
-                billed_invoice_id: inserted.id,
-                billed_invoice_line_item_id: line.id,
-                updated_at: updatedAt,
-              })
-              .eq('id', line.pending_source_item_id as string),
-          ),
-      );
     }
   }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FocusMode } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,14 +28,14 @@ type Props = {
 };
 
 export function TaskCompletionModal(props: Props) {
-  const { open, ...rest } = props;
-  if (!open) return null;
-  return <TaskCompletionModalContent {...rest} />;
+  if (!props.open) return null;
+  return <TaskCompletionModalContent {...props} />;
 }
 
-type ModalContentProps = Omit<Props, 'open'>;
+type ModalContentProps = Props;
 
 function TaskCompletionModalContent({
+  open,
   mode,
   taskTitle,
   loading,
@@ -48,20 +48,29 @@ function TaskCompletionModalContent({
   const [feeling, setFeeling] = useState('');
   const [interruptionReason, setInterruptionReason] = useState('');
 
+  useEffect(() => {
+    if (!open) return;
+    setFinancialImpact('');
+    setSkill('');
+    setKudos('');
+    setFeeling('');
+    setInterruptionReason('');
+  }, [open, mode]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'CORPORATE') {
       onSubmit({
         mode: 'CORPORATE',
-        financialImpact,
-        skillDemonstrated: skill,
-        kudosReceived: kudos,
+        financialImpact: financialImpact.trim(),
+        skillDemonstrated: skill.trim(),
+        kudosReceived: kudos.trim(),
       });
     } else {
       onSubmit({
         mode: 'HOLISTIC',
-        feeling,
-        interruptionReason,
+        feeling: feeling.trim(),
+        interruptionReason: interruptionReason.trim(),
       });
     }
   };

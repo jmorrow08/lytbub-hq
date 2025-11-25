@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { FocusMode } from '@/types';
 
 type FocusModeContextValue = {
@@ -18,17 +18,24 @@ const applyDocumentTheme = (mode: FocusMode) => {
 };
 
 export function FocusModeProvider({ children }: { children: ReactNode }) {
-  const [focusMode, setFocusModeState] = useState<FocusMode>(() => {
+  const [focusMode, setFocusModeState] = useState<FocusMode>('CORPORATE');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
-      return 'CORPORATE';
+      setLoading(false);
+      return;
     }
+
     const stored = localStorage.getItem(STORAGE_KEY) as FocusMode | null;
-    const initialMode: FocusMode =
-      stored === 'HOLISTIC' || stored === 'CORPORATE' ? stored : 'CORPORATE';
-    applyDocumentTheme(initialMode);
-    return initialMode;
-  });
-  const loading = false;
+    if (stored === 'HOLISTIC' || stored === 'CORPORATE') {
+      setFocusModeState(stored);
+      applyDocumentTheme(stored);
+    } else {
+      applyDocumentTheme('CORPORATE');
+    }
+    setLoading(false);
+  }, []);
 
   const handleSetFocusMode = (mode: FocusMode) => {
     setFocusModeState(mode);
