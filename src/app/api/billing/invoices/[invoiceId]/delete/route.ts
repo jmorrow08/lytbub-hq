@@ -80,3 +80,4 @@ export async function DELETE(req: Request, context: InvoiceRouteContext) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
+

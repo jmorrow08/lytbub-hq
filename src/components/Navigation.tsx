@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CheckSquare, DollarSign, Video, Heart, FolderKanban, CreditCard, UserCircle } from 'lucide-react';
+import { CheckSquare, Video, Heart, FolderKanban, CreditCard, UserCircle } from 'lucide-react';
 import { useAuth } from './auth/AuthProvider';
 import { Button } from './ui/button';
 import { ModeToggle } from './mode/ModeToggle';
@@ -13,7 +13,6 @@ const navigation = [
   { name: 'Clients', href: '/clients', icon: UserCircle },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Finance', href: '/finance', icon: CreditCard },
-  { name: 'Revenue', href: '/revenue', icon: DollarSign },
   { name: 'Content', href: '/content', icon: Video },
   { name: 'Health', href: '/health', icon: Heart },
 ];

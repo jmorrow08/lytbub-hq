@@ -1,5 +1,5 @@
 'use client';
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -25,6 +25,7 @@ import type {
   CreateProjectChannelData,
 } from '@/types';
 import { ArrowLeft, CheckSquare, Eye, Pencil, Trash2 } from 'lucide-react';
+import { SubscriptionManager } from '@/components/billing/SubscriptionManager';
 
 const channelPlatforms = [
   'youtube',
@@ -163,10 +164,7 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const totalViews = useMemo(
-    () => content.reduce((sum, item) => sum + item.views, 0),
-    [content]
-  );
+  const totalViews = useMemo(() => content.reduce((sum, item) => sum + item.views, 0), [content]);
 
   if (!projectId) {
     return (
@@ -208,7 +206,11 @@ export default function ProjectDetailPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-            <Button variant="ghost" className="px-0 text-sm" onClick={() => router.push('/projects')}>
+            <Button
+              variant="ghost"
+              className="px-0 text-sm"
+              onClick={() => router.push('/projects')}
+            >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Projects
             </Button>
@@ -303,7 +305,11 @@ export default function ProjectDetailPage() {
                       )}
                     </div>
                     <div className="flex space-x-2">
-                      <Button size="sm" variant="ghost" onClick={() => startEditingChannel(channel)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => startEditingChannel(channel)}
+                      >
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
@@ -382,8 +388,8 @@ export default function ProjectDetailPage() {
                   {channelSubmitting
                     ? 'Saving...'
                     : editingChannel
-                      ? 'Update Channel'
-                      : 'Add Channel'}
+                    ? 'Update Channel'
+                    : 'Add Channel'}
                 </Button>
                 {editingChannel && (
                   <Button type="button" variant="outline" onClick={resetChannelForm}>
@@ -418,6 +424,11 @@ export default function ProjectDetailPage() {
         </Card>
       </div>
 
+      {/* Billing & Subscription (read-only) */}
+      <div className="grid gap-6">
+        <SubscriptionManager clients={[project]} onUpdate={async () => {}} readOnly />
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -436,15 +447,17 @@ export default function ProjectDetailPage() {
                     <button
                       onClick={() => handleToggleTask(task)}
                       className={`h-5 w-5 rounded border-2 ${
-                        task.completed
-                          ? 'border-green-500 bg-green-500'
-                          : 'border-yellow-500'
+                        task.completed ? 'border-green-500 bg-green-500' : 'border-yellow-500'
                       } flex items-center justify-center`}
                     >
                       {task.completed && <CheckSquare className="h-3 w-3 text-white" />}
                     </button>
                     <div className="flex-1">
-                      <p className={`font-medium ${task.completed ? 'line-through text-muted-foreground' : ''}`}>
+                      <p
+                        className={`font-medium ${
+                          task.completed ? 'line-through text-muted-foreground' : ''
+                        }`}
+                      >
                         {task.title}
                       </p>
                       {task.description && (

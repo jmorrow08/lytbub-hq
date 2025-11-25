@@ -74,7 +74,12 @@ export function SubscriptionManager({
     }
   };
 
-  const selectedId = selectedProjectId || (clients[0]?.id ?? '');
+  // Determine which clients to show:
+  // - If a selector is provided, default to the first client to drive the dropdown.
+  // - If readOnly mode is used without a selector and without an explicitly selected project,
+  //   show all clients (do NOT filter to the first).
+  const hasSelector = Boolean(onSelectClient);
+  const selectedId = selectedProjectId ?? (hasSelector ? clients[0]?.id ?? '' : '');
   const visibleClients =
     selectedId && clients.some((c) => c.id === selectedId)
       ? clients.filter((c) => c.id === selectedId)

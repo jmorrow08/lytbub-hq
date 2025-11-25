@@ -148,7 +148,7 @@ export default function ClientDetailPage() {
           </div>
         </div>
         <Button asChild variant="outline">
-          <Link href="/billing">Open Billing</Link>
+          <Link href="/finance?tab=billing">Open Billing</Link>
         </Button>
       </div>
 
@@ -238,7 +238,7 @@ export default function ClientDetailPage() {
 
               <div className="pt-2">
                 <p className="text-xs text-muted-foreground">
-                  Manage detailed billing periods and invoice generation from the Billing workspace.
+                  Manage detailed billing periods and invoice generation from Finance → Billing.
                 </p>
               </div>
             </CardContent>

@@ -118,3 +118,4 @@ export async function POST(req: Request, context: InvoiceRouteContext) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
+
