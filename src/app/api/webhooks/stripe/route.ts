@@ -5,7 +5,7 @@ import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
-type SupabaseAdminClient = SupabaseClient<Record<string, unknown>>;
+type SupabaseAdminClient = SupabaseClient<any>;
 
 export async function POST(req: Request) {
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
@@ -648,8 +648,14 @@ function summarizePaymentIntent(paymentIntent?: Stripe.PaymentIntent | null): Pa
     return summarizeCharge(paymentIntent.latest_charge as Stripe.Charge);
   }
 
-  if (paymentIntent.charges?.data?.length) {
-    return summarizeCharge(paymentIntent.charges.data[0]);
+  const charges = (
+    paymentIntent as Stripe.PaymentIntent & {
+      charges?: Stripe.ApiList<Stripe.Charge>;
+    }
+  ).charges;
+
+  if (charges?.data?.length) {
+    return summarizeCharge(charges.data[0]);
   }
 
   return EMPTY_PAYMENT_METHOD_SUMMARY;

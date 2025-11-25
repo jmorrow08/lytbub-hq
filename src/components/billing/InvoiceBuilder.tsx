@@ -570,11 +570,20 @@ export function InvoiceBuilder({
                   const quantity = Number(formData.get('qty') || 1);
                   const unitPrice = Number(formData.get('price') || 0);
                   if (!description || !Number.isFinite(unitPrice)) return;
+                  const unitPriceCents = Math.round(unitPrice * 100);
+                  if (unitPriceCents === 0) {
+                    const confirmFree = window.confirm(
+                      'This line item has a zero price. Add it anyway?',
+                    );
+                    if (!confirmFree) {
+                      return;
+                    }
+                  }
                   try {
                     const updated = await addDraftInvoiceLineItem(currentInvoiceId, {
                       description,
                       quantity,
-                      unitPriceCents: Math.round(unitPrice * 100),
+                      unitPriceCents,
                     });
                     setLiveInvoice((prev) => {
                       if (updated.id !== currentInvoiceId) {

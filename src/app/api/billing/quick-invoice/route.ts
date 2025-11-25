@@ -1,5 +1,3 @@
-'use server';
-
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -271,7 +269,7 @@ export async function POST(req: Request) {
         pending_item_ids: pendingItems.map((item) => item.id).join(','),
         include_retainer: includeRetainer ? 'true' : 'false',
         quick_invoice: 'true',
-        memo: payload.memo ?? undefined,
+        memo: payload.memo ?? null,
       },
     });
     stripeInvoiceId = stripeInvoice.id;

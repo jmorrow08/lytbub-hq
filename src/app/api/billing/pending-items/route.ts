@@ -1,5 +1,3 @@
-'use server';
-
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -139,11 +137,16 @@ export async function POST(req: Request) {
       | PendingItemInput
       | null;
 
-    const rawItems = Array.isArray(payload?.items)
-      ? payload?.items ?? []
-      : payload
-      ? [payload]
-      : [];
+    let rawItems: PendingItemInput[] = [];
+
+    if (payload && typeof payload === 'object') {
+      if ('items' in payload) {
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        rawItems = items.filter((item): item is PendingItemInput => !!item);
+      } else {
+        rawItems = [payload as PendingItemInput];
+      }
+    }
 
     const normalized = rawItems
       .map((item) => normalizeItem(item))

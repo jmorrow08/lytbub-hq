@@ -410,7 +410,8 @@ export async function POST(req: Request) {
               billed_invoice_line_item_id: lineLookup.get(item.id) ?? null,
               updated_at: updatedAt,
             })
-            .eq('id', item.id),
+            .eq('id', item.id)
+            .eq('created_by', user.id),
         ),
       );
     }
