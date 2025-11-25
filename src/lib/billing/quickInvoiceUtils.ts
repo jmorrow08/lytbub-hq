@@ -45,3 +45,4 @@ export function generateInvoiceNumber(): string {
   const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `INV-${year}${month}-${randomSuffix}`;
 }
+

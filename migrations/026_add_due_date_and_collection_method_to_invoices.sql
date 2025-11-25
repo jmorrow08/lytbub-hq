@@ -11,3 +11,4 @@ CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON public.invoices (due_date);
 
 COMMIT;
 
+

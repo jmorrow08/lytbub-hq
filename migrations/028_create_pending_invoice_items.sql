@@ -68,3 +68,4 @@ CREATE INDEX IF NOT EXISTS idx_invoice_line_items_pending_source
   ON public.invoice_line_items (pending_source_item_id);
 
 COMMIT;
+
