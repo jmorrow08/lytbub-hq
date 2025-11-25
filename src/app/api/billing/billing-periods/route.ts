@@ -78,7 +78,10 @@ export async function POST(req: Request) {
 
     const payload = (await req.json()) as CreateBillingPeriodPayload;
     if (!payload?.projectId || !payload.periodStart || !payload.periodEnd) {
-      return NextResponse.json({ error: 'projectId, periodStart, and periodEnd are required.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'projectId, periodStart, and periodEnd are required.' },
+        { status: 400 },
+      );
     }
 
     const periodStartDate = new Date(payload.periodStart);
@@ -120,12 +123,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
     }
 
-    let clientId: string | null = payload.clientId || project.client_id || null;
-    if (payload.clientId) {
+    const requestedClientId = payload.clientId ?? null;
+    const projectClientId = project.client_id ?? null;
+    const clientId = requestedClientId ?? projectClientId;
+
+    if (requestedClientId) {
       const { data: clientLookup, error: clientError } = await supabase
         .from('clients')
         .select('id')
-        .eq('id', payload.clientId)
+        .eq('id', requestedClientId)
         .eq('created_by', user.id)
         .maybeSingle();
       if (clientError) {
@@ -137,12 +143,18 @@ export async function POST(req: Request) {
       }
     }
 
-    if (project.client_id && clientId && project.client_id !== clientId) {
-      return NextResponse.json({ error: 'Client does not match selected project.' }, { status: 400 });
+    if (projectClientId && clientId && projectClientId !== clientId) {
+      return NextResponse.json(
+        { error: 'Client does not match selected project.' },
+        { status: 400 },
+      );
     }
 
     if (!clientId) {
-      return NextResponse.json({ error: 'Select a client for this billing period.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Select a client for this billing period.' },
+        { status: 400 },
+      );
     }
 
     const { data, error } = await supabase

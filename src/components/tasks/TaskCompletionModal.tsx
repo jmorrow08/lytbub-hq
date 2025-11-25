@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { FocusMode } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,24 +27,26 @@ type Props = {
   onSubmit: (details: CompletionDetails) => Promise<void> | void;
 };
 
-export function TaskCompletionModal({ open, mode, taskTitle, loading, onClose, onSubmit }: Props) {
+export function TaskCompletionModal(props: Props) {
+  const { open, ...rest } = props;
+  if (!open) return null;
+  return <TaskCompletionModalContent {...rest} />;
+}
+
+type ModalContentProps = Omit<Props, 'open'>;
+
+function TaskCompletionModalContent({
+  mode,
+  taskTitle,
+  loading,
+  onClose,
+  onSubmit,
+}: ModalContentProps) {
   const [financialImpact, setFinancialImpact] = useState('');
   const [skill, setSkill] = useState('');
   const [kudos, setKudos] = useState('');
   const [feeling, setFeeling] = useState('');
   const [interruptionReason, setInterruptionReason] = useState('');
-
-  useEffect(() => {
-    if (open) {
-      setFinancialImpact('');
-      setSkill('');
-      setKudos('');
-      setFeeling('');
-      setInterruptionReason('');
-    }
-  }, [open, mode]);
-
-  if (!open) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

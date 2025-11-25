@@ -28,10 +28,6 @@ type QuickInvoicePayload = {
   finalize?: boolean;
 };
 
-type RouteContext = {
-  params: Promise<Record<string, never>>;
-};
-
 const ensureSupabase = () => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -58,7 +54,7 @@ async function resolveUser(supabaseUrl: string, supabaseAnonKey: string, authHea
   return { supabase, user };
 }
 
-export async function POST(req: Request, _context: RouteContext) {
+export async function POST(req: Request) {
   let stripeInvoiceId: string | null = null;
   try {
     const { supabaseUrl, supabaseAnonKey } = ensureSupabase();

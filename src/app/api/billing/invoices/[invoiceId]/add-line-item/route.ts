@@ -79,7 +79,17 @@ export async function POST(req: Request, context: InvoiceRouteContext) {
       metadata: { line_type: 'project', added_manually: 'true' },
     });
 
-    const { error: insertError } = await supabase.from('invoice_line_items').insert({
+    const insertPayload: {
+      invoice_id: string;
+      line_type: 'project';
+      description: string;
+      quantity: number;
+      unit_price_cents: number;
+      amount_cents: number;
+      sort_order: number;
+      metadata: Record<string, unknown>;
+      created_by: string;
+    } = {
       invoice_id: invoice.id,
       line_type: 'project',
       description: payload.description,
@@ -89,7 +99,9 @@ export async function POST(req: Request, context: InvoiceRouteContext) {
       sort_order: (invoice.line_items?.length ?? 0) + 100, // push to end
       metadata: { added_manually: true },
       created_by: user.id,
-    } as any);
+    };
+
+    const { error: insertError } = await supabase.from('invoice_line_items').insert(insertPayload);
 
     if (insertError) {
       console.error(
@@ -118,4 +130,3 @@ export async function POST(req: Request, context: InvoiceRouteContext) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
-

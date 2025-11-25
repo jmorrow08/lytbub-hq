@@ -5,7 +5,7 @@ import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
-type SupabaseAdminClient = SupabaseClient<any>;
+type SupabaseAdminClient = SupabaseClient<Record<string, unknown>>;
 
 export async function POST(req: Request) {
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
@@ -42,10 +42,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
   }
 
-  const supabaseAdmin: SupabaseAdminClient = createClient<any>(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false },
-    global: { headers: { Authorization: `Bearer ${serviceRoleKey}` } },
-  });
+  const supabaseAdmin: SupabaseAdminClient = createClient<Record<string, unknown>>(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${serviceRoleKey}` } },
+    },
+  );
 
   let ok = true;
   try {

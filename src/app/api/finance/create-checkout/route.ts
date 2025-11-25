@@ -25,9 +25,24 @@ type ProjectSummary = {
   id: string;
   name?: string | null;
   client_id?: string | null;
-  client?: ClientSummary | null;
+  client?: ClientSummary | ClientSummary[] | null;
   stripe_customer_id?: string | null;
 };
+
+function normalizeClientRelation(
+  relation: ClientSummary | ClientSummary[] | null | undefined,
+): ClientSummary | null {
+  if (!relation) {
+    return null;
+  }
+  if (Array.isArray(relation)) {
+    return relation.length > 0 ? normalizeClientRelation(relation[0]) : null;
+  }
+  return {
+    id: relation.id,
+    name: typeof relation.name === 'string' ? relation.name : null,
+  };
+}
 
 export async function POST(req: Request) {
   try {
@@ -129,34 +144,29 @@ export async function POST(req: Request) {
       if (!projectData) {
         return NextResponse.json({ error: 'Client project not found.' }, { status: 400 });
       }
-      const rawClient =
-        Array.isArray((projectData as any).client) && (projectData as any).client.length > 0
-          ? (projectData as any).client[0]
-          : (projectData as any).client ?? null;
-      const normalizedClient =
-        rawClient && typeof rawClient.id === 'string'
-          ? ({
-              id: rawClient.id,
-              name: typeof rawClient.name === 'string' ? rawClient.name : null,
-            } satisfies ClientSummary)
-          : null;
-
-      projectRecord = {
+      const projectRow: ProjectSummary = {
         id: projectData.id,
         name: projectData.name ?? null,
         client_id: projectData.client_id ?? null,
+        client: projectData.client ?? null,
+        stripe_customer_id: projectData.stripe_customer_id ?? null,
+      };
+      const normalizedClient = normalizeClientRelation(projectRow.client);
+      projectRecord = {
+        id: projectRow.id,
+        name: projectRow.name ?? null,
+        client_id: projectRow.client_id ?? null,
         client: normalizedClient,
-        stripe_customer_id: (projectData as any).stripe_customer_id ?? null,
+        stripe_customer_id: projectRow.stripe_customer_id ?? null,
       };
 
       if (!clientRecord) {
         const candidate: ClientSummary | null =
           normalizedClient ??
-          (typeof (projectData as any).client_id === 'string'
+          (typeof projectRow.client_id === 'string'
             ? {
-                id: (projectData as any).client_id,
-                name:
-                  typeof (projectData as any).name === 'string' ? (projectData as any).name : null,
+                id: projectRow.client_id,
+                name: typeof projectRow.name === 'string' ? projectRow.name : null,
               }
             : null);
         clientRecord = candidate;

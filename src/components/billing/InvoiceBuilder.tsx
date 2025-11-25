@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { BillingPeriod, Invoice, PendingInvoiceItem, Project } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,14 +54,6 @@ export function InvoiceBuilder({
   const [selectedPendingItemIds, setSelectedPendingItemIds] = useState<string[]>([]);
   const lastProjectIdRef = useRef<string | null>(null);
 
-  // Keep a live copy in sync with latest draft provided by parent
-  // (e.g., after creating a new draft via onGenerate)
-  useEffect(() => {
-    if (draftInvoice && (!liveInvoice || liveInvoice.id !== draftInvoice.id)) {
-      setLiveInvoice(draftInvoice);
-    }
-  }, [draftInvoice, liveInvoice]);
-
   const selectedPeriod = useMemo(
     () => billingPeriods.find((period) => period.id === billingPeriodId) ?? null,
     [billingPeriods, billingPeriodId],
@@ -73,6 +65,56 @@ export function InvoiceBuilder({
     if (!projectId) return null;
     return projects.find((candidate) => candidate.id === projectId) ?? null;
   }, [projects, projectId]);
+
+  const activeInvoice = useMemo(() => {
+    if (liveInvoice && draftInvoice && liveInvoice.id === draftInvoice.id) {
+      return liveInvoice;
+    }
+    if (draftInvoice) {
+      return draftInvoice;
+    }
+    return liveInvoice;
+  }, [draftInvoice, liveInvoice]);
+
+  const handleBillingPeriodChange = (nextPeriodId: string) => {
+    setBillingPeriodId(nextPeriodId);
+    if (!nextPeriodId) {
+      lastProjectIdRef.current = null;
+      setSelectedPendingItemIds([]);
+      setIncludeRetainer(false);
+      return;
+    }
+
+    const nextPeriod = billingPeriods.find((period) => period.id === nextPeriodId) ?? null;
+    const nextProjectId = nextPeriod?.project_id ?? null;
+
+    if (!nextProjectId) {
+      lastProjectIdRef.current = null;
+      setSelectedPendingItemIds([]);
+      setIncludeRetainer(false);
+      return;
+    }
+
+    setSelectedPendingItemIds((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      const permittedIds = new Set(
+        pendingItems.filter((item) => item.project_id === nextProjectId).map((item) => item.id),
+      );
+      const filtered = prev.filter((id) => permittedIds.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+
+    if (lastProjectIdRef.current !== nextProjectId) {
+      const nextProject = projects.find((candidate) => candidate.id === nextProjectId) ?? null;
+      const shouldIncludeRetainer = Boolean(
+        nextProject?.base_retainer_cents && nextProject.base_retainer_cents > 0,
+      );
+      setIncludeRetainer((prev) => (prev === shouldIncludeRetainer ? prev : shouldIncludeRetainer));
+      lastProjectIdRef.current = nextProjectId;
+    }
+  };
 
   const projectPendingItems = useMemo(() => {
     if (!projectId) return [];
@@ -104,26 +146,9 @@ export function InvoiceBuilder({
     includeRetainer && project?.base_retainer_cents ? project.base_retainer_cents : 0;
 
   const totalCents = pendingTotalCents + retainerCents + manualLinesTotalCents;
-  const selectedPendingCount = selectedPendingItemIds.length;
+  const selectedPendingCount = selectedPendingItems.length;
   const hasManualLines = manualLinesTotalCents > 0;
   const canSubmit = totalCents > 0 && (collectionMethod !== 'send_invoice' || Boolean(dueDate));
-
-  useEffect(() => {
-    if (!projectId) {
-      setSelectedPendingItemIds([]);
-      lastProjectIdRef.current = null;
-      return;
-    }
-    setSelectedPendingItemIds((prev) =>
-      prev.filter((id) =>
-        pendingItems.some((item) => item.id === id && item.project_id === projectId),
-      ),
-    );
-    if (lastProjectIdRef.current !== projectId) {
-      setIncludeRetainer(Boolean(project?.base_retainer_cents && project.base_retainer_cents > 0));
-      lastProjectIdRef.current = projectId;
-    }
-  }, [projectId, pendingItems, project]);
 
   const togglePendingItem = (itemId: string) => {
     setSelectedPendingItemIds((prev) =>
@@ -199,6 +224,7 @@ export function InvoiceBuilder({
       setMemo('');
       setDueDate('');
       setIncludeProcessingFee(true);
+      setLiveInvoice(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate invoice.');
     }
@@ -218,7 +244,7 @@ export function InvoiceBuilder({
             <select
               id="invoice-period"
               value={billingPeriodId}
-              onChange={(event) => setBillingPeriodId(event.target.value)}
+              onChange={(event) => handleBillingPeriodChange(event.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               required
             >
@@ -497,49 +523,47 @@ export function InvoiceBuilder({
           </Button>
         </form>
 
-        {(liveInvoice || draftInvoice) && (
+        {activeInvoice && (
           <div className="rounded-lg border border-border/60 p-4 space-y-3 bg-muted/40">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Draft Invoice</p>
-                <p className="text-lg font-semibold">
-                  {(liveInvoice || draftInvoice)!.invoice_number}
-                </p>
+                <p className="text-lg font-semibold">{activeInvoice.invoice_number}</p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-muted-foreground">Total</p>
                 <p className="text-xl font-bold">
-                  {currency.format(((liveInvoice || draftInvoice)!.total_cents || 0) / 100)}
+                  {currency.format((activeInvoice.total_cents || 0) / 100)}
                 </p>
               </div>
             </div>
-            {(liveInvoice || draftInvoice)!.line_items &&
-              (liveInvoice || draftInvoice)!.line_items!.length > 0 && (
-                <div className="space-y-2">
-                  {(liveInvoice || draftInvoice)!.line_items!.map((line) => (
-                    <div
-                      key={line.id ?? `${line.description}-${line.amount_cents}`}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <div>
-                        <p className="font-medium">{line.description}</p>
-                        <p className="text-muted-foreground">
-                          {line.quantity} × {currency.format(line.unit_price_cents / 100)}
-                        </p>
-                      </div>
-                      <span className="font-semibold">
-                        {currency.format(line.amount_cents / 100)}
-                      </span>
+            {activeInvoice.line_items && activeInvoice.line_items.length > 0 && (
+              <div className="space-y-2">
+                {activeInvoice.line_items.map((line) => (
+                  <div
+                    key={line.id ?? `${line.description}-${line.amount_cents}`}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <div>
+                      <p className="font-medium">{line.description}</p>
+                      <p className="text-muted-foreground">
+                        {line.quantity} × {currency.format(line.unit_price_cents / 100)}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <span className="font-semibold">
+                      {currency.format(line.amount_cents / 100)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="pt-2 border-t border-border/40">
               <p className="text-sm font-medium mb-2">Add line item to this draft</p>
               <form
                 className="grid gap-2 md:grid-cols-12"
                 onSubmit={async (e) => {
                   e.preventDefault();
+                  const currentInvoiceId = activeInvoice.id;
                   const form = e.currentTarget as HTMLFormElement;
                   const formData = new FormData(form);
                   const description = String(formData.get('desc') || '');
@@ -547,15 +571,17 @@ export function InvoiceBuilder({
                   const unitPrice = Number(formData.get('price') || 0);
                   if (!description || !Number.isFinite(unitPrice)) return;
                   try {
-                    const updated = await addDraftInvoiceLineItem(
-                      (liveInvoice || draftInvoice)!.id,
-                      {
-                        description,
-                        quantity,
-                        unitPriceCents: Math.round(unitPrice * 100),
-                      },
-                    );
-                    setLiveInvoice(updated);
+                    const updated = await addDraftInvoiceLineItem(currentInvoiceId, {
+                      description,
+                      quantity,
+                      unitPriceCents: Math.round(unitPrice * 100),
+                    });
+                    setLiveInvoice((prev) => {
+                      if (updated.id !== currentInvoiceId) {
+                        return prev;
+                      }
+                      return updated;
+                    });
                     // Let parent reload invoices; minimal UX: clear fields
                     form.reset();
                   } catch {
