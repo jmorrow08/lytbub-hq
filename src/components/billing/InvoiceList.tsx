@@ -17,6 +17,15 @@ type InvoiceListProps = {
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
+function formatYmdAsLocaleDate(ymd: string): string {
+  // Avoid timezone shifts by parsing YYYY-MM-DD into a local Date
+  const parts = ymd.split('-').map((p) => Number(p));
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return ymd;
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString();
+}
+
 export function InvoiceList({
   invoices,
   onFinalize,
@@ -76,7 +85,7 @@ export function InvoiceList({
                     </td>
                     <td className="py-3">
                       {invoice.collection_method === 'send_invoice' && invoice.due_date
-                        ? new Date(invoice.due_date).toLocaleDateString()
+                        ? formatYmdAsLocaleDate(invoice.due_date)
                         : '—'}
                     </td>
                     <td className="py-3 font-semibold">

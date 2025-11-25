@@ -231,7 +231,9 @@ export async function POST(req: Request) {
         customer: projectRecord?.stripe_customer_id || undefined,
         payment_method_types:
           allowedPmTypes as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
+        billing_address_collection: 'required',
         payment_method_collection: 'always',
+        automatic_tax: { enabled: true },
         success_url: `${siteUrl}/payment/success?paymentId=${paymentId}`,
         cancel_url: `${siteUrl}/payment/cancel?paymentId=${paymentId}`,
         customer_email: payload?.customerEmail || undefined,
