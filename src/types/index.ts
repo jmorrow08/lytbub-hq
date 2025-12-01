@@ -162,6 +162,9 @@ export interface Invoice {
   payment_brand?: string | null;
   payment_last4?: string | null;
   metadata?: Record<string, unknown> | null;
+  public_share_id?: string | null;
+  public_share_expires_at?: string | null;
+  portal_payload?: Record<string, unknown> | null;
   created_by: string;
   created_at: string;
   updated_at?: string | null;

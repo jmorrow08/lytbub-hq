@@ -735,6 +735,24 @@ export const deleteDraftInvoice = async (invoiceId: string): Promise<void> => {
   });
 };
 
+export const updateInvoicePortal = async (
+  invoiceId: string,
+  payload: {
+    portalPayload?: Record<string, unknown>;
+    regenerateShareId?: boolean;
+    expiresAt?: string | null;
+  },
+): Promise<Invoice> => {
+  const data = await authedRequest<{ invoice: Invoice }>(
+    `/api/billing/invoices/${invoiceId}/portal`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  );
+  return data.invoice;
+};
+
 export const createBillingPortalLink = async (
   projectId: string,
   returnUrl?: string,

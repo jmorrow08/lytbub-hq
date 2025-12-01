@@ -22,6 +22,7 @@ import {
   updateSubscriptionSettings,
   getPendingInvoiceItems,
   createQuickInvoice,
+  updateInvoicePortal,
   // Revenue
   getRevenue,
   createRevenue,
@@ -59,6 +60,15 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
   dateStyle: 'medium',
   timeStyle: 'short',
 });
+
+const formatDateTimeLocal = (value?: string | null): string => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  const local = new Date(date.getTime() - offsetMs);
+  return local.toISOString().slice(0, 16);
+};
 
 type BillingStatus = {
   type: 'success' | 'error';
@@ -155,6 +165,13 @@ export default function FinancePage() {
   const [editingRevenueEntry, setEditingRevenueEntry] = useState<Revenue | null>(null);
   const [deletingRevenueId, setDeletingRevenueId] = useState<string | null>(null);
   const [activeTimezone, setActiveTimezone] = useState('America/New_York');
+
+  // Portal microsite editor state
+  const [portalInvoiceId, setPortalInvoiceId] = useState<string>('');
+  const [portalPayloadText, setPortalPayloadText] = useState<string>('{}');
+  const [portalExpiresAt, setPortalExpiresAt] = useState<string>('');
+  const [portalStatus, setPortalStatus] = useState<string | null>(null);
+  const [portalSaving, setPortalSaving] = useState(false);
 
   // Tab routing sync
   useEffect(() => {
@@ -292,6 +309,19 @@ export default function FinancePage() {
     setQuickInvoiceError(null);
     setQuickInvoiceResult(null);
   }, [quickInvoiceProjectId, billingClients, pendingItems]);
+
+  useEffect(() => {
+    if (!portalInvoiceId && invoices.length > 0) {
+      setPortalInvoiceId(invoices[0].id);
+    }
+  }, [invoices, portalInvoiceId]);
+
+  useEffect(() => {
+    if (!portalSelectedInvoice) return;
+    setPortalPayloadText(JSON.stringify(portalSelectedInvoice.portal_payload ?? {}, null, 2));
+    setPortalExpiresAt(formatDateTimeLocal(portalSelectedInvoice.public_share_expires_at));
+    setPortalStatus(null);
+  }, [portalSelectedInvoice]);
 
   const triggerToast = (type: 'success' | 'error', message: string) => {
     if (toastTimer.current) {
@@ -548,6 +578,62 @@ export default function FinancePage() {
     }
   };
 
+  const handlePortalRegenerate = async () => {
+    if (!portalSelectedInvoice) return;
+    setPortalSaving(true);
+    setPortalStatus(null);
+    try {
+      const updated = await updateInvoicePortal(portalSelectedInvoice.id, {
+        regenerateShareId: true,
+      });
+      setInvoices((prev) => prev.map((inv) => (inv.id === updated.id ? updated : inv)));
+      setPortalInvoiceId(updated.id);
+      setPortalStatus('Share link regenerated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to regenerate share link.';
+      setPortalStatus(message);
+    } finally {
+      setPortalSaving(false);
+    }
+  };
+
+  const handlePortalSave = async () => {
+    if (!portalSelectedInvoice) return;
+    let parsedPayload: Record<string, unknown>;
+    try {
+      parsedPayload = portalPayloadText.trim() ? JSON.parse(portalPayloadText) : {};
+    } catch (error) {
+      setPortalStatus('Portal payload must be valid JSON.');
+      return;
+    }
+
+    setPortalSaving(true);
+    setPortalStatus(null);
+    try {
+      const updated = await updateInvoicePortal(portalSelectedInvoice.id, {
+        portalPayload: parsedPayload,
+        expiresAt: portalExpiresAt || null,
+      });
+      setInvoices((prev) => prev.map((inv) => (inv.id === updated.id ? updated : inv)));
+      setPortalStatus('Portal content saved.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save portal content.';
+      setPortalStatus(message);
+    } finally {
+      setPortalSaving(false);
+    }
+  };
+
+  const handlePortalCopyLink = async () => {
+    if (!portalShareLink) return;
+    try {
+      await navigator.clipboard.writeText(portalShareLink);
+      setPortalStatus('Share link copied.');
+    } catch {
+      setPortalStatus('Unable to copy link. Please copy manually.');
+    }
+  };
+
   const handleCreatePeriod = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!periodForm.projectId || !periodForm.periodStart || !periodForm.periodEnd) {
@@ -675,6 +761,22 @@ export default function FinancePage() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 12);
   }, [payments, invoices, clientLookup]);
+
+  // Portal microsite helpers
+  const portalSelectedInvoice = useMemo(
+    () => invoices.find((inv) => inv.id === portalInvoiceId) ?? null,
+    [invoices, portalInvoiceId],
+  );
+
+  const portalBaseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (typeof window !== 'undefined' ? window.location.origin : '').replace(/\/$/, '');
+
+  const portalShareLink = useMemo(() => {
+    if (!portalSelectedInvoice?.public_share_id) return '';
+    const base = portalBaseUrl || '';
+    return `${base}/invoice/${portalSelectedInvoice.public_share_id}`;
+  }, [portalBaseUrl, portalSelectedInvoice]);
 
   const usageNotificationEntries = useMemo<UsageNotificationEntry[]>(() => {
     return billingClients
@@ -1428,7 +1530,93 @@ export default function FinancePage() {
                 finalizingId={finalizingId}
                 markingId={markingId}
                 clientLookup={clientLookup}
+                onPortalSelect={(invoice) => setPortalInvoiceId(invoice.id)}
               />
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Invoice Portal Link &amp; Payload</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Create a public share link and set the AI/usage/shadow metadata shown on the client-facing
+                    invoice microsite.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Invoice</label>
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={portalInvoiceId}
+                        onChange={(event) => setPortalInvoiceId(event.target.value)}
+                      >
+                        {invoices.map((inv) => (
+                          <option key={inv.id} value={inv.id}>
+                            {inv.invoice_number || inv.id} • {inv.status}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Share link</label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          readOnly
+                          value={portalShareLink || 'Generate a link first'}
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={!portalShareLink}
+                          onClick={handlePortalCopyLink}
+                        >
+                          Copy
+                        </Button>
+                        <Button type="button" onClick={handlePortalRegenerate} disabled={portalSaving}>
+                          {portalSaving ? 'Working…' : 'Generate'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Share expiration (optional)</label>
+                      <Input
+                        type="datetime-local"
+                        value={portalExpiresAt}
+                        onChange={(event) => setPortalExpiresAt(event.target.value)}
+                        placeholder="Leave blank for no expiry"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Portal payload (JSON)</label>
+                      <textarea
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[220px] font-mono"
+                        value={portalPayloadText}
+                        onChange={(event) => setPortalPayloadText(event.target.value)}
+                        spellCheck={false}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
+                      Keys to consider: usageDetails, shadowItems, shadowSummary, aiNotes, roadmapUpdates, voiceScript.
+                    </div>
+                    <Button type="button" onClick={handlePortalSave} disabled={portalSaving || !portalSelectedInvoice}>
+                      {portalSaving ? 'Saving…' : 'Save Portal Content'}
+                    </Button>
+                  </div>
+
+                  {portalStatus && (
+                    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                      {portalStatus}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           )}
         </>

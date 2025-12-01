@@ -14,6 +14,7 @@ type InvoiceListProps = {
   finalizingId?: string | null;
   markingId?: string | null;
   clientLookup?: Record<string, string>;
+  onPortalSelect?: (invoice: Invoice) => void;
 };
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -45,6 +46,7 @@ export function InvoiceList({
   finalizingId,
   markingId,
   clientLookup,
+  onPortalSelect,
 }: InvoiceListProps) {
   const sortedInvoices = useMemo(
     () => [...invoices].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
@@ -176,6 +178,11 @@ export function InvoiceList({
                                 </a>
                               </Button>
                             </>
+                          )}
+                          {onPortalSelect && (
+                            <Button size="sm" variant="outline" onClick={() => onPortalSelect(invoice)}>
+                              Portal
+                            </Button>
                           )}
                           {invoice.status !== 'paid' && (
                             <>
