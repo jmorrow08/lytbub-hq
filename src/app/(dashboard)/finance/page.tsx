@@ -316,6 +316,12 @@ export default function FinancePage() {
     }
   }, [invoices, portalInvoiceId]);
 
+  // Portal microsite helpers
+  const portalSelectedInvoice = useMemo(
+    () => invoices.find((inv) => inv.id === portalInvoiceId) ?? null,
+    [invoices, portalInvoiceId],
+  );
+
   useEffect(() => {
     if (!portalSelectedInvoice) return;
     setPortalPayloadText(JSON.stringify(portalSelectedInvoice.portal_payload ?? {}, null, 2));
@@ -761,12 +767,6 @@ export default function FinancePage() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 12);
   }, [payments, invoices, clientLookup]);
-
-  // Portal microsite helpers
-  const portalSelectedInvoice = useMemo(
-    () => invoices.find((inv) => inv.id === portalInvoiceId) ?? null,
-    [invoices, portalInvoiceId],
-  );
 
   const portalBaseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ||
@@ -1537,8 +1537,8 @@ export default function FinancePage() {
                 <CardHeader>
                   <CardTitle>Invoice Portal Link &amp; Payload</CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    Create a public share link and set the AI/usage/shadow metadata shown on the client-facing
-                    invoice microsite.
+                    Create a public share link and set the AI/usage/shadow metadata shown on the
+                    client-facing invoice microsite.
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1573,7 +1573,11 @@ export default function FinancePage() {
                         >
                           Copy
                         </Button>
-                        <Button type="button" onClick={handlePortalRegenerate} disabled={portalSaving}>
+                        <Button
+                          type="button"
+                          onClick={handlePortalRegenerate}
+                          disabled={portalSaving}
+                        >
                           {portalSaving ? 'Working…' : 'Generate'}
                         </Button>
                       </div>
@@ -1582,7 +1586,9 @@ export default function FinancePage() {
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Share expiration (optional)</label>
+                      <label className="block text-sm font-medium mb-1">
+                        Share expiration (optional)
+                      </label>
                       <Input
                         type="datetime-local"
                         value={portalExpiresAt}
@@ -1591,7 +1597,9 @@ export default function FinancePage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Portal payload (JSON)</label>
+                      <label className="block text-sm font-medium mb-1">
+                        Portal payload (JSON)
+                      </label>
                       <textarea
                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[220px] font-mono"
                         value={portalPayloadText}
@@ -1603,9 +1611,14 @@ export default function FinancePage() {
 
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-muted-foreground">
-                      Keys to consider: usageDetails, shadowItems, shadowSummary, aiNotes, roadmapUpdates, voiceScript.
+                      Keys to consider: usageDetails, shadowItems, shadowSummary, aiNotes,
+                      roadmapUpdates, voiceScript.
                     </div>
-                    <Button type="button" onClick={handlePortalSave} disabled={portalSaving || !portalSelectedInvoice}>
+                    <Button
+                      type="button"
+                      onClick={handlePortalSave}
+                      disabled={portalSaving || !portalSelectedInvoice}
+                    >
                       {portalSaving ? 'Saving…' : 'Save Portal Content'}
                     </Button>
                   </div>

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-type ServiceClient = ReturnType<typeof createClient<Record<string, unknown>>>;
+// Use an untyped Supabase client for this server-only helper to avoid incorrect `never` inference
+type ServiceClient = ReturnType<typeof createClient<any>>;
 
 export type PortalUsageDetail = {
   id?: string;
@@ -195,12 +196,15 @@ export async function fetchPublicInvoice(shareId: string): Promise<PublicInvoice
     hostedUrl: data.stripe_hosted_url ?? null,
     pdfUrl: data.stripe_pdf_url ?? null,
     currency: 'USD',
-    clientName:
-      data.client?.name ??
-      data.client?.company_name ??
-      data.client?.contact_name ??
-      'Valued Client',
-    clientCompany: data.client?.company_name ?? data.client?.name ?? null,
+    // `client` may be returned as an array by Supabase relation selects; take the first item if so
+    clientName: (() => {
+      const client = Array.isArray(data.client) ? data.client[0] : data.client;
+      return client?.name ?? client?.company_name ?? client?.contact_name ?? 'Valued Client';
+    })(),
+    clientCompany: (() => {
+      const client = Array.isArray(data.client) ? data.client[0] : data.client;
+      return client?.company_name ?? client?.name ?? null;
+    })(),
     portalPayload,
     lineItems,
   };
@@ -215,7 +219,9 @@ export function buildInvoiceSystemPrompt(invoice: PublicInvoiceView): string {
             const billed = typeof u.billedAmount === 'number' ? u.billedAmount.toFixed(2) : 'n/a';
             const raw = typeof u.rawCost === 'number' ? u.rawCost.toFixed(2) : 'n/a';
             const markup =
-              typeof u.markupPercent === 'number' ? `${u.markupPercent}% markup` : 'no markup noted';
+              typeof u.markupPercent === 'number'
+                ? `${u.markupPercent}% markup`
+                : 'no markup noted';
             return `- ${u.toolName}: billed $${billed} (raw ~$${raw}, ${markup})${
               u.description ? ` — ${u.description}` : ''
             }`;
@@ -236,13 +242,19 @@ export function buildInvoiceSystemPrompt(invoice: PublicInvoiceView): string {
                 ? `${s.hours} hrs @ $${s.marketRatePerHour.toFixed(2)}`
                 : '';
             const complimentary = s.isComplimentary ? 'Included at no extra cost.' : '';
-            return `- ${s.label}: ${value}. ${hours} ${complimentary} ${s.description ?? ''}`.trim();
+            return `- ${s.label}: ${value}. ${hours} ${complimentary} ${
+              s.description ?? ''
+            }`.trim();
           })
           .join('\n')
       : 'No shadow value items listed.';
 
   const shadowSummary = portalPayload.shadowSummary
-    ? `Shadow summary: implied ~$${(portalPayload.shadowSummary.totalImpliedValue ?? 0).toLocaleString()}, complimentary ~$${(portalPayload.shadowSummary.complimentaryValue ?? 0).toLocaleString()}. Note: ${portalPayload.shadowSummary.note ?? 'n/a'}.`
+    ? `Shadow summary: implied ~$${(
+        portalPayload.shadowSummary.totalImpliedValue ?? 0
+      ).toLocaleString()}, complimentary ~$${(
+        portalPayload.shadowSummary.complimentaryValue ?? 0
+      ).toLocaleString()}. Note: ${portalPayload.shadowSummary.note ?? 'n/a'}.`
     : 'Shadow summary not provided.';
 
   const notes = portalPayload.aiNotes ? `Notes: ${portalPayload.aiNotes}` : '';
