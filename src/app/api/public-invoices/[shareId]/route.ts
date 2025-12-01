@@ -1,16 +1,16 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { fetchPublicInvoice } from '@/lib/invoice-portal';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = {
-  params: { shareId: string };
+  params: Promise<{ shareId: string }>;
 };
 
-export async function GET(_req: Request, { params }: RouteContext) {
+export async function GET(_req: NextRequest, { params }: RouteContext) {
   try {
-    const shareId = params.shareId;
+    const { shareId } = await params;
     const invoice = await fetchPublicInvoice(shareId);
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found or expired.' }, { status: 404 });
