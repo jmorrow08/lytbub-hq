@@ -591,6 +591,8 @@ export default function FinancePage() {
     try {
       const updated = await updateInvoicePortal(portalSelectedInvoice.id, {
         regenerateShareId: true,
+        // Clear any old expiry when generating a new link
+        expiresAt: null,
       });
       setInvoices((prev) => prev.map((inv) => (inv.id === updated.id ? updated : inv)));
       setPortalInvoiceId(updated.id);

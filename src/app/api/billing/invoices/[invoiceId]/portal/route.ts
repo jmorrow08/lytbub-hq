@@ -59,6 +59,10 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     if (body.regenerateShareId) {
       updates.public_share_id = crypto.randomUUID();
+      // If no explicit expiry provided while regenerating, clear any old expiry
+      if (body.expiresAt === undefined) {
+        updates.public_share_expires_at = null;
+      }
     }
 
     if (body.expiresAt !== undefined) {
