@@ -39,13 +39,11 @@ export async function PATCH(req: Request, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = (await req.json().catch(() => null)) as
-      | {
-          portalPayload?: Record<string, unknown>;
-          regenerateShareId?: boolean;
-          expiresAt?: string | null;
-        }
-      | null;
+    const body = (await req.json().catch(() => null)) as {
+      portalPayload?: Record<string, unknown>;
+      regenerateShareId?: boolean;
+      expiresAt?: string | null;
+    } | null;
 
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 });
@@ -71,7 +69,10 @@ export async function PATCH(req: Request, context: RouteContext) {
       } else {
         const expiresDate = new Date(body.expiresAt);
         if (Number.isNaN(expiresDate.getTime())) {
-          return NextResponse.json({ error: 'expiresAt must be a valid date string.' }, { status: 400 });
+          return NextResponse.json(
+            { error: 'expiresAt must be a valid date string.' },
+            { status: 400 },
+          );
         }
         updates.public_share_expires_at = expiresDate.toISOString();
       }
@@ -94,7 +95,10 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     if (error) {
       console.error('[api/billing/invoices/:id/portal] update failed', error);
-      return NextResponse.json({ error: 'Unable to update invoice portal settings.' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Unable to update invoice portal settings.' },
+        { status: 500 },
+      );
     }
 
     if (!data) {

@@ -12,7 +12,11 @@ export async function GET(_req: Request, context: RouteContext) {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !serviceKey) {
       return NextResponse.json(
-        { ok: false, reason: 'missing_env', details: { supabaseUrl: !!supabaseUrl, serviceKey: !!serviceKey } },
+        {
+          ok: false,
+          reason: 'missing_env',
+          details: { supabaseUrl: !!supabaseUrl, serviceKey: !!serviceKey },
+        },
         { status: 500 },
       );
     }
@@ -37,7 +41,10 @@ export async function GET(_req: Request, context: RouteContext) {
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ ok: false, reason: 'supabase_error', message: String(error.message) }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, reason: 'supabase_error', message: String(error.message) },
+        { status: 500 },
+      );
     }
 
     if (!data) {
@@ -63,7 +70,10 @@ export async function GET(_req: Request, context: RouteContext) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ ok: false, reason: 'unexpected', message: String(error) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, reason: 'unexpected', message: String(error) },
+      { status: 500 },
+    );
   }
 }
 
