@@ -152,3 +152,4 @@ export async function GET(req: Request, { params }: { params: { invoiceId: strin
   return NextResponse.json({ error: 'Unsupported download type.' }, { status: 400 });
 }
 
+
