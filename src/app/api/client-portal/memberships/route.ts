@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { getAuthUserFromRequest, getClientPortalServiceClient } from '@/lib/auth/client-auth';
@@ -31,11 +32,26 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 });
   }
 
-  const { data: membershipRows, error: membershipError } = await serviceClient
-    .from('client_users')
+  const membershipResult = await (serviceClient.from('client_users') as any)
     .select(`client_id, role, client:clients(id, name, company_name, client_portal_enabled)`)
     .eq('user_id', user.id)
     .order('client_id', { ascending: true });
+  const membershipRows = membershipResult.data as Array<{
+    client_id: string;
+    role: string;
+    client: {
+      id: string;
+      name: string | null;
+      company_name: string | null;
+      client_portal_enabled: boolean | null;
+    } | Array<{
+      id: string;
+      name: string | null;
+      company_name: string | null;
+      client_portal_enabled: boolean | null;
+    }> | null;
+  }> | null;
+  const membershipError = membershipResult.error;
 
   if (membershipError) {
     console.error('[client-portal memberships] Failed to load membership rows', membershipError);
@@ -57,10 +73,16 @@ export async function GET(req: Request) {
     });
   }
 
-  const { data: ownedRows, error: ownedError } = await serviceClient
-    .from('clients')
+  const ownedResult = await (serviceClient.from('clients') as any)
     .select('id, name, company_name, client_portal_enabled')
     .eq('created_by', user.id);
+  const ownedRows = ownedResult.data as Array<{
+    id: string;
+    name: string | null;
+    company_name: string | null;
+    client_portal_enabled: boolean | null;
+  }> | null;
+  const ownedError = ownedResult.error;
 
   if (ownedError) {
     console.error('[client-portal memberships] Failed to load owned clients', ownedError);

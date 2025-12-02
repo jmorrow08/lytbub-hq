@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { authorizeClientRequest, getClientPortalServiceClient } from '@/lib/auth/client-auth';
@@ -91,5 +92,4 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ invoices });
 }
-
 

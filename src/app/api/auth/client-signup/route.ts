@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { getAuthUserFromRequest, getClientPortalServiceClient } from '@/lib/auth/client-auth';
@@ -112,13 +113,14 @@ export async function POST(req: Request) {
 
   const role = client.created_by === user.id ? 'owner' : 'viewer';
 
+  const upsertPayload: Record<string, unknown> = {
+    client_id: client.id,
+    user_id: user.id,
+    email,
+    role,
+  };
   const { error: upsertError } = await (serviceClient.from('client_users') as any).upsert(
-    {
-      client_id: client.id,
-      user_id: user.id,
-      email,
-      role,
-    },
+    upsertPayload,
     { onConflict: 'client_id,user_id' },
   );
 

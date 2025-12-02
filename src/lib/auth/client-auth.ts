@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@supabase/supabase-js';
 import type { User } from '@supabase/supabase-js';
 
@@ -65,11 +66,13 @@ export async function getAuthUserFromRequest(req: Request): Promise<User | null>
 
 async function resolveClientIdFromShare(shareId: string): Promise<string | null> {
   const serviceClient = getServiceClient();
-  const { data, error } = await serviceClient
-    .from('invoices')
+  const result = await (serviceClient.from('invoices') as any)
     .select('client_id, public_share_expires_at')
     .eq('public_share_id', shareId)
     .maybeSingle();
+  const data =
+    (result.data as { client_id: string; public_share_expires_at: string | null } | null) ?? null;
+  const error = result.error;
 
   if (error) {
     console.error('[client-auth] Failed to resolve share link', { shareId, error });
@@ -90,20 +93,30 @@ async function resolveClientIdFromShare(shareId: string): Promise<string | null>
   return data.client_id ?? null;
 }
 
-async function fetchClientPortalInfo(clientId: string) {
+async function fetchClientPortalInfo(clientId: string): Promise<{
+  id: string;
+  created_by: string;
+  client_portal_enabled: boolean | null;
+} | null> {
   const serviceClient = getServiceClient();
-  const { data, error } = await serviceClient
-    .from('clients')
+  const result = await (serviceClient.from('clients') as any)
     .select('id, created_by, client_portal_enabled')
     .eq('id', clientId)
     .maybeSingle();
+  const data =
+    (result.data as {
+      id: string;
+      created_by: string;
+      client_portal_enabled: boolean | null;
+    } | null) ?? null;
+  const error = result.error;
 
   if (error) {
     console.error('[client-auth] Failed to load client portal info', { clientId, error });
     throw new Error('Unable to load client portal.');
   }
 
-  return data ?? null;
+  return data;
 }
 
 export async function resolveClientMembership(
@@ -111,12 +124,13 @@ export async function resolveClientMembership(
   clientId: string,
 ): Promise<ClientPortalMembership | null> {
   const serviceClient = getServiceClient();
-  const { data, error } = await serviceClient
-    .from('client_users')
+  const membershipResult = await (serviceClient.from('client_users') as any)
     .select('role')
     .eq('client_id', clientId)
     .eq('user_id', userId)
     .maybeSingle();
+  const data = (membershipResult.data as { role: string } | null) ?? null;
+  const error = membershipResult.error;
 
   if (error) {
     console.error('[client-auth] Failed to fetch client membership', { clientId, userId, error });
@@ -172,10 +186,11 @@ export async function ensureClientPortalAccess(options: {
 
 export async function listClientMemberships(userId: string): Promise<ClientPortalMembership[]> {
   const serviceClient = getServiceClient();
-  const { data, error } = await serviceClient
-    .from('client_users')
+  const listResult = await (serviceClient.from('client_users') as any)
     .select('client_id, role')
     .eq('user_id', userId);
+  const data = (listResult.data as Array<{ client_id: string; role: string }> | null) ?? null;
+  const error = listResult.error;
 
   if (error) {
     console.error('[client-auth] Failed to list client memberships', { userId, error });
@@ -187,10 +202,11 @@ export async function listClientMemberships(userId: string): Promise<ClientPorta
     role: row.role as ClientPortalRole,
   }));
 
-  const { data: ownedClients, error: ownedError } = await serviceClient
-    .from('clients')
+  const ownedResult = await (serviceClient.from('clients') as any)
     .select('id')
     .eq('created_by', userId);
+  const ownedClients = (ownedResult.data as Array<{ id: string }> | null) ?? null;
+  const ownedError = ownedResult.error;
 
   if (ownedError) {
     console.error('[client-auth] Failed to load owned clients', { userId, error: ownedError });
@@ -232,5 +248,3 @@ export async function authorizeClientRequest(
 export function getClientPortalServiceClient() {
   return getServiceClient();
 }
-
-

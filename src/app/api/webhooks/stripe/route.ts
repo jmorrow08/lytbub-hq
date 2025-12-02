@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -121,14 +122,14 @@ async function handleCheckoutCompleted(
     }
   }
 
-  const { error } = await supabaseAdmin
-    .from('payments')
-    .update({
-      status: 'paid',
-      payment_method_used: summary.method,
-      payment_brand: summary.brand,
-      payment_last4: summary.last4,
-    })
+  const updatePayload: Record<string, unknown> = {
+    status: 'paid',
+    payment_method_used: summary.method,
+    payment_brand: summary.brand,
+    payment_last4: summary.last4,
+  };
+  const { error } = await (supabaseAdmin.from('payments') as any)
+    .update(updatePayload)
     .eq('stripe_id', session.id);
 
   if (error) {
@@ -181,30 +182,32 @@ async function handleInvoicePaid(
     auto_created_from_stripe: true,
   };
 
-  const { data: updated, error } = await supabaseAdmin
-    .from('invoices')
-    .update({
-      status: invoice.status || 'paid',
-      subtotal_cents: invoice.subtotal ?? invoice.amount_paid ?? 0,
-      tax_cents: taxCents,
-      processing_fee_cents: processingFeeCents,
-      total_cents: invoice.amount_paid ?? invoice.amount_due ?? 0,
-      net_amount_cents: netAmountCents,
-      stripe_hosted_url: invoice.hosted_invoice_url,
-      stripe_pdf_url: invoice.invoice_pdf,
-      payment_method_used: paymentSummary.method,
-      payment_brand: paymentSummary.brand,
-      payment_last4: paymentSummary.last4,
-      metadata: metadataPayload,
-    })
+  const invoiceUpdatePayload: Record<string, unknown> = {
+    status: invoice.status || 'paid',
+    subtotal_cents: invoice.subtotal ?? invoice.amount_paid ?? 0,
+    tax_cents: taxCents,
+    processing_fee_cents: processingFeeCents,
+    total_cents: invoice.amount_paid ?? invoice.amount_due ?? 0,
+    net_amount_cents: netAmountCents,
+    stripe_hosted_url: invoice.hosted_invoice_url,
+    stripe_pdf_url: invoice.invoice_pdf,
+    payment_method_used: paymentSummary.method,
+    payment_brand: paymentSummary.brand,
+    payment_last4: paymentSummary.last4,
+    metadata: metadataPayload,
+  };
+  const updateResult = await (supabaseAdmin.from('invoices') as any)
+    .update(invoiceUpdatePayload)
     .eq('stripe_invoice_id', stripeInvoiceId)
     .select('id')
     .maybeSingle();
+  const updateError = updateResult.error;
+  const updated = (updateResult.data as { id: string } | null) ?? null;
 
-  if (error || !updated) {
+  if (updateError || !updated) {
     console.error('[stripe webhook] failed to update paid invoice', {
       stripeInvoiceId,
-      error,
+      error: updateError,
     });
     return false;
   }
@@ -237,20 +240,22 @@ async function handleInvoicePaymentFailed(
     auto_created_from_stripe: true,
   };
 
-  const { data: updated, error } = await supabaseAdmin
-    .from('invoices')
-    .update({
-      status: 'open',
-      metadata: metadataPayload,
-    })
+  const failedUpdatePayload: Record<string, unknown> = {
+    status: 'open',
+    metadata: metadataPayload,
+  };
+  const updateResult = await (supabaseAdmin.from('invoices') as any)
+    .update(failedUpdatePayload)
     .eq('stripe_invoice_id', invoice.id)
     .select('id')
     .maybeSingle();
+  const updateError = updateResult.error;
+  const updated = (updateResult.data as { id: string } | null) ?? null;
 
-  if (error || !updated) {
+  if (updateError || !updated) {
     console.error('[stripe webhook] failed to update failed invoice', {
       stripeInvoiceId: invoice.id,
-      error,
+      error: updateError,
     });
     return false;
   }
@@ -267,10 +272,14 @@ async function handleInvoiceVoided(
     return false;
   }
 
-  const { data: lineItems, error: lineError } = await supabaseAdmin
-    .from('invoice_line_items')
+  const lineItemsResult = await (supabaseAdmin.from('invoice_line_items') as any)
     .select('id, pending_source_item_id')
     .eq('invoice_id', invoiceRecordId);
+  const lineItems = lineItemsResult.data as Array<{
+    id: string;
+    pending_source_item_id: string | null;
+  }> | null;
+  const lineError = lineItemsResult.error;
 
   if (lineError) {
     console.error('[stripe webhook] failed to fetch line items for voided invoice', lineError);
@@ -279,30 +288,30 @@ async function handleInvoiceVoided(
     await Promise.all(
       lineItems
         .filter((line) => typeof line.pending_source_item_id === 'string')
-        .map((line) =>
-          supabaseAdmin
-            .from('pending_invoice_items')
-            .update({
-              status: 'pending',
-              billed_invoice_id: null,
-              billed_invoice_line_item_id: null,
-              updated_at: updatedAt,
-            })
-            .eq('id', line.pending_source_item_id as string),
-        ),
+        .map((line) => {
+          const pendingUpdatePayload: Record<string, unknown> = {
+            status: 'pending',
+            billed_invoice_id: null,
+            billed_invoice_line_item_id: null,
+            updated_at: updatedAt,
+          };
+          return (supabaseAdmin.from('pending_invoice_items') as any)
+            .update(pendingUpdatePayload)
+            .eq('id', line.pending_source_item_id as string);
+        }),
     );
   }
 
-  const { error: updateError } = await supabaseAdmin
-    .from('invoices')
-    .update({
-      status: 'void',
-      metadata: {
-        ...(invoice.metadata ?? {}),
-        voided_at: new Date().toISOString(),
-        auto_created_from_stripe: true,
-      },
-    })
+  const voidUpdatePayload: Record<string, unknown> = {
+    status: 'void',
+    metadata: {
+      ...(invoice.metadata ?? {}),
+      voided_at: new Date().toISOString(),
+      auto_created_from_stripe: true,
+    },
+  };
+  const { error: updateError } = await (supabaseAdmin.from('invoices') as any)
+    .update(voidUpdatePayload)
     .eq('id', invoiceRecordId);
 
   if (updateError) {
@@ -379,11 +388,12 @@ async function upsertInvoiceRecord(
     metadataPayload.client_id = context.clientId;
   }
 
-  const { data: existing, error: existingError } = await supabaseAdmin
-    .from('invoices')
+  const existingResult = await (supabaseAdmin.from('invoices') as any)
     .select('id')
     .eq('stripe_invoice_id', invoice.id)
     .maybeSingle();
+  const existing = (existingResult.data as { id: string } | null) ?? null;
+  const existingError = existingResult.error;
 
   if (existingError) {
     console.error('[stripe webhook] failed to lookup existing invoice', {
@@ -394,27 +404,27 @@ async function upsertInvoiceRecord(
   }
 
   if (existing) {
-    const { error: updateError } = await supabaseAdmin
-      .from('invoices')
-      .update({
-        invoice_number: invoiceNumber,
-        project_id: context.project.id,
-        client_id: context.clientId ?? context.project.client_id,
-        billing_period_id: context.billingPeriodId,
-        subtotal_cents: subtotalCents,
-        tax_cents: taxCents,
-        total_cents: totalCents,
-        net_amount_cents: invoice.amount_paid ?? totalCents,
-        stripe_customer_id: stripeCustomerId,
-        stripe_subscription_id: stripeSubscriptionId,
-        stripe_hosted_url: invoice.hosted_invoice_url,
-        stripe_pdf_url: invoice.invoice_pdf,
-        payment_method_type: paymentMethodType,
-        collection_method: invoice.collection_method ?? 'charge_automatically',
-        due_date: dueDateYmd,
-        status: invoice.status ?? 'draft',
-        metadata: metadataPayload,
-      })
+    const existingUpdatePayload: Record<string, unknown> = {
+      invoice_number: invoiceNumber,
+      project_id: context.project.id,
+      client_id: context.clientId ?? context.project.client_id,
+      billing_period_id: context.billingPeriodId,
+      subtotal_cents: subtotalCents,
+      tax_cents: taxCents,
+      total_cents: totalCents,
+      net_amount_cents: invoice.amount_paid ?? totalCents,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: stripeSubscriptionId,
+      stripe_hosted_url: invoice.hosted_invoice_url,
+      stripe_pdf_url: invoice.invoice_pdf,
+      payment_method_type: paymentMethodType,
+      collection_method: invoice.collection_method ?? 'charge_automatically',
+      due_date: dueDateYmd,
+      status: invoice.status ?? 'draft',
+      metadata: metadataPayload,
+    };
+    const { error: updateError } = await (supabaseAdmin.from('invoices') as any)
+      .update(existingUpdatePayload)
       .eq('id', existing.id);
 
     if (updateError) {
@@ -428,7 +438,7 @@ async function upsertInvoiceRecord(
     return existing.id;
   }
 
-  const insertPayload = {
+  const insertPayload: Record<string, unknown> = {
     invoice_number: invoiceNumber,
     project_id: context.project.id,
     client_id: context.clientId ?? context.project.client_id,
@@ -452,11 +462,12 @@ async function upsertInvoiceRecord(
     created_at: createdAtIso,
   };
 
-  const { data: inserted, error: insertError } = await supabaseAdmin
-    .from('invoices')
+  const insertResult = await (supabaseAdmin.from('invoices') as any)
     .insert(insertPayload)
     .select('id')
     .single();
+  const insertError = insertResult.error;
+  const inserted = (insertResult.data as { id: string } | null) ?? null;
 
   if (insertError || !inserted) {
     console.error('[stripe webhook] failed to insert invoice record', {
@@ -490,9 +501,9 @@ async function upsertInvoiceRecord(
       };
     });
 
-    const { error: lineError } = await supabaseAdmin
-      .from('invoice_line_items')
-      .insert(linePayloads);
+    const { error: lineError } = await (supabaseAdmin.from('invoice_line_items') as any).insert(
+      linePayloads,
+    );
 
     if (lineError) {
       console.error('[stripe webhook] failed to insert invoice line items', {
@@ -523,50 +534,50 @@ async function resolveProjectContext(
   let project: ProjectRecord | null = null;
 
   if (projectIdFromMetadata) {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
+    const projectResult = await (supabaseAdmin.from('projects') as any)
       .select(projectSelect)
       .eq('id', projectIdFromMetadata)
       .maybeSingle();
-    if (error) {
+    const projectError = projectResult.error;
+    if (projectError) {
       console.error('[stripe webhook] failed to lookup project by id', {
         projectId: projectIdFromMetadata,
-        error,
+        error: projectError,
       });
     } else {
-      project = (data as ProjectRecord | null) ?? null;
+      project = (projectResult.data as ProjectRecord | null) ?? null;
     }
   }
 
   if (!project && typeof invoice.subscription === 'string' && invoice.subscription) {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
+    const subscriptionResult = await (supabaseAdmin.from('projects') as any)
       .select(projectSelect)
       .eq('stripe_subscription_id', invoice.subscription)
       .maybeSingle();
-    if (error) {
+    const subscriptionError = subscriptionResult.error;
+    if (subscriptionError) {
       console.error('[stripe webhook] failed to lookup project by subscription', {
         subscriptionId: invoice.subscription,
-        error,
+        error: subscriptionError,
       });
     } else {
-      project = (data as ProjectRecord | null) ?? null;
+      project = (subscriptionResult.data as ProjectRecord | null) ?? null;
     }
   }
 
   if (!project && typeof invoice.customer === 'string' && invoice.customer) {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
+    const customerResult = await (supabaseAdmin.from('projects') as any)
       .select(projectSelect)
       .eq('stripe_customer_id', invoice.customer)
       .maybeSingle();
-    if (error) {
+    const customerError = customerResult.error;
+    if (customerError) {
       console.error('[stripe webhook] failed to lookup project by customer', {
         customerId: invoice.customer,
-        error,
+        error: customerError,
       });
     } else {
-      project = (data as ProjectRecord | null) ?? null;
+      project = (customerResult.data as ProjectRecord | null) ?? null;
     }
   }
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import { authorizeClientRequest, getClientPortalServiceClient } from '@/lib/auth/client-auth';
 
@@ -108,13 +109,19 @@ export async function GET(req: Request, context: RouteContext) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 });
   }
 
-  const { data: invoice, error } = await serviceClient
-    .from('invoices')
+  const invoiceResult = await (serviceClient.from('invoices') as any)
     .select(
       'id, client_id, invoice_number, status, due_date, created_at, total_cents, subtotal_cents, tax_cents, stripe_pdf_url, public_share_id, public_share_expires_at, portal_payload, line_items:invoice_line_items(*)',
     )
     .eq('id', invoiceId)
     .maybeSingle();
+  const invoice = invoiceResult.data as InvoiceForCsv & {
+    client_id: string;
+    stripe_pdf_url: string | null;
+    public_share_id: string | null;
+    public_share_expires_at: string | null;
+  } | null;
+  const error = invoiceResult.error;
 
   if (error) {
     console.error('[client-portal download] Failed to load invoice', error);

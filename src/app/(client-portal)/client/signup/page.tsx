@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+export const dynamic = 'force-dynamic';
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +22,7 @@ type PublicInvoicePreview = {
 
 type LinkState = 'idle' | 'linking' | 'linked' | 'error';
 
-export default function ClientSignupPage() {
+function ClientSignupContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -218,4 +220,10 @@ export default function ClientSignupPage() {
   );
 }
 
-
+export default function ClientSignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <ClientSignupContent />
+    </Suspense>
+  );
+}

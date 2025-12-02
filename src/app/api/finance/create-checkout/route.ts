@@ -178,9 +178,10 @@ export async function POST(req: Request) {
     }
 
     const resolvedClient = clientRecord;
+    const projectClient = normalizeClientRelation(projectRecord?.client);
     const resolvedStripeCustomerId =
       resolvedClient?.stripe_customer_id ??
-      projectRecord?.client?.stripe_customer_id ??
+      projectClient?.stripe_customer_id ??
       projectRecord?.stripe_customer_id ??
       null;
 

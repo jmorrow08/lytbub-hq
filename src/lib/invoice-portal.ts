@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@supabase/supabase-js';
 
 // Use a generic database type for this server-only helper to avoid incorrect `never` inference
@@ -184,8 +185,7 @@ export async function fetchPublicInvoice(shareId: string): Promise<PublicInvoice
   if (!shareId) return null;
   const supabase = getServiceClient();
 
-  const { data, error } = await supabase
-    .from('invoices')
+  const result = await (supabase.from('invoices') as any)
     .select(
       `
       id,
@@ -213,6 +213,38 @@ export async function fetchPublicInvoice(shareId: string): Promise<PublicInvoice
     )
     .eq('public_share_id', shareId)
     .maybeSingle();
+  const data =
+    (result.data as {
+      id: string;
+      invoice_number?: string | null;
+      project_id?: string | null;
+      client_id?: string | null;
+      status: string;
+      subtotal_cents?: number | null;
+      tax_cents?: number | null;
+      total_cents?: number | null;
+      net_amount_cents?: number | null;
+      collection_method?: string | null;
+      payment_method_type?: string | null;
+      due_date?: string | null;
+      created_at: string;
+      stripe_hosted_url?: string | null;
+      stripe_pdf_url?: string | null;
+      metadata?: Record<string, unknown> | null;
+      portal_payload?: unknown;
+      public_share_id: string;
+      public_share_expires_at?: string | null;
+      client?:
+        | { name?: string | null; company_name?: string | null; contact_name?: string | null }
+        | Array<{
+            name?: string | null;
+            company_name?: string | null;
+            contact_name?: string | null;
+          }>
+        | null;
+      line_items?: unknown[] | null;
+    } | null) ?? null;
+  const error = result.error;
 
   if (error) {
     console.error('[fetchPublicInvoice] Supabase error', error);
@@ -241,10 +273,21 @@ export async function fetchPublicInvoice(shareId: string): Promise<PublicInvoice
     const quantity = Number(line.quantity ?? 1) || 1;
     const unitCents = Number(line.unit_price_cents ?? line.amount_cents ?? 0) || 0;
     const amountCents = Number(line.amount_cents ?? Math.round(quantity * unitCents)) || 0;
+    const metaRecord =
+      line.metadata && typeof line.metadata === 'object'
+        ? (line.metadata as Record<string, unknown>)
+        : null;
+    const metaMemo =
+      metaRecord && typeof metaRecord.memo === 'string' ? metaRecord.memo : null;
+    const metaNote = metaRecord && typeof metaRecord.note === 'string' ? metaRecord.note : null;
+    const label =
+      typeof line.description === 'string' && line.description.trim().length > 0
+        ? line.description
+        : line.line_type ?? 'Service line item';
     return {
       id: String(line.id ?? crypto.randomUUID()),
-      label: line.description ?? line.line_type ?? 'Service line item',
-      description: line.metadata?.memo ?? line.metadata?.note ?? null,
+      label,
+      description: metaMemo ?? metaNote ?? null,
       quantity,
       unitAmountCents: unitCents,
       totalAmountCents: amountCents,

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { authorizeClientRequest, getClientPortalServiceClient } from '@/lib/auth/client-auth';
@@ -57,10 +58,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 });
   }
 
-  const { data: projectRows, error: projectError } = await serviceClient
-    .from('projects')
+  const projectResult = await (serviceClient.from('projects') as any)
     .select('id, name')
     .eq('client_id', auth.clientId);
+  const projectRows = projectResult.data as Array<{ id: string; name: string | null }> | null;
+  const projectError = projectResult.error;
 
   if (projectError) {
     console.error('[client-portal usage] Failed to load project list', projectError);
@@ -77,8 +79,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const { data, error } = await serviceClient
-    .from('usage_events')
+  const usageResult = await (serviceClient.from('usage_events') as any)
     .select(
       'id, event_date, metric_type, quantity, unit_price_cents, description, metadata, project_id, project:projects(name)',
     )
@@ -87,6 +88,18 @@ export async function GET(req: Request) {
     .lte('event_date', dateRange.endDate)
     .order('event_date', { ascending: false })
     .limit(MAX_EVENTS);
+  const data = usageResult.data as Array<{
+    id: string;
+    event_date: string | null;
+    metric_type: string | null;
+    quantity: number | string | null;
+    unit_price_cents: number | null;
+    description: string | null;
+    metadata: Record<string, unknown> | null;
+    project_id: string;
+    project: { name: string | null } | Array<{ name: string | null }> | null;
+  }> | null;
+  const error = usageResult.error;
 
   if (error) {
     console.error('[client-portal usage] Failed to load usage events', error);
@@ -165,5 +178,4 @@ export async function GET(req: Request) {
     events,
   });
 }
-
 
