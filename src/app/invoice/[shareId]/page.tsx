@@ -11,7 +11,7 @@ type PageParams = {
 
 export default async function InvoiceSharePage({ params }: PageParams) {
   // Resolve origin to call our own public API (avoids any env drift).
-  const hdrs = headers();
+  const hdrs = await headers();
   const host = hdrs.get('x-forwarded-host') || hdrs.get('host') || '';
   const proto = hdrs.get('x-forwarded-proto') || 'https';
   const origin =
