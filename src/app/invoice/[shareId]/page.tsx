@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 import { notFound } from 'next/navigation';
 import { fetchPublicInvoice } from '@/lib/invoice-portal';
 import { InvoicePageShell } from '@/components/invoice/InvoicePageShell';
