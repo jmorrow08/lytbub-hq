@@ -6,7 +6,7 @@ type MembershipResponse = {
   id: string;
   name: string;
   companyName: string | null;
-  role: 'viewer' | 'admin';
+  role: 'viewer' | 'admin' | 'owner';
   portalEnabled: boolean;
 };
 
@@ -47,11 +47,12 @@ export async function GET(req: Request) {
   for (const row of membershipRows ?? []) {
     const client = Array.isArray(row.client) ? row.client[0] : row.client;
     if (!client) continue;
+    const role = row.role === 'owner' ? 'owner' : row.role === 'admin' ? 'admin' : 'viewer';
     responseMap.set(client.id, {
       id: client.id,
       name: client.name ?? 'Client',
       companyName: client.company_name ?? null,
-      role: row.role === 'admin' ? 'admin' : 'viewer',
+      role,
       portalEnabled: client.client_portal_enabled !== false,
     });
   }
@@ -72,15 +73,15 @@ export async function GET(req: Request) {
         id: client.id,
         name: client.name ?? 'Client',
         companyName: client.company_name ?? null,
-        role: 'admin',
+        role: 'owner',
         portalEnabled: client.client_portal_enabled !== false,
       });
     } else {
       const existing = responseMap.get(client.id);
-      if (existing && existing.role !== 'admin') {
+      if (existing && existing.role !== 'owner' && existing.role !== 'admin') {
         responseMap.set(client.id, {
           ...existing,
-          role: 'admin',
+          role: 'owner',
           portalEnabled: client.client_portal_enabled !== false,
         });
       }
@@ -89,5 +90,3 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ clients: Array.from(responseMap.values()) });
 }
-
-

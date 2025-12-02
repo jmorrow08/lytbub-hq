@@ -64,11 +64,17 @@ async function assertClientOwnership(
   }
 }
 
+type MembershipRow = {
+  id: string;
+  client_id: string;
+  role: 'owner' | 'viewer' | 'admin';
+};
+
 async function loadMembership(
   supabase: SupabaseClient<Database>,
   clientId: string,
   membershipId: string,
-) {
+): Promise<MembershipRow> {
   const { data, error } = await supabase
     .from('client_users')
     .select('id, client_id, role')
@@ -87,13 +93,13 @@ async function loadMembership(
     throw notFound;
   }
 
-  if (data.role === 'owner') {
+  if ((data as MembershipRow).role === 'owner') {
     const forbidden = new Error('Owner access cannot be modified.');
     (forbidden as { status?: number }).status = 400;
     throw forbidden;
   }
 
-  return data;
+  return data as MembershipRow;
 }
 
 export async function PATCH(req: Request, context: RouteParams) {
