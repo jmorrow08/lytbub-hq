@@ -60,7 +60,7 @@ export async function POST(req: Request) {
 
     const { data: client, error: clientError } = await supabase
       .from('clients')
-      .select('id, name, company_name, email, phone')
+      .select('id, name, company_name, email, phone, stripe_customer_id')
       .eq('id', project.client_id)
       .eq('created_by', user.id)
       .maybeSingle();
@@ -73,8 +73,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Client not found.' }, { status: 404 });
     }
 
-    // Ensure Stripe customer exists
-    let stripeCustomerId: string | null = project.stripe_customer_id || null;
+    // Ensure Stripe customer exists and is tracked at the client level
+    let stripeCustomerId: string | null =
+      client.stripe_customer_id || project.stripe_customer_id || null;
+
+    if (!client.stripe_customer_id && project.stripe_customer_id) {
+      await supabase
+        .from('clients')
+        .update({
+          stripe_customer_id: project.stripe_customer_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', client.id)
+        .eq('created_by', user.id);
+    }
+
     if (!stripeCustomerId) {
       const customer = await createOrUpdateCustomer({
         customerId: null,
@@ -88,11 +101,17 @@ export async function POST(req: Request) {
       });
       stripeCustomerId = customer.id;
       const { error: updateError } = await supabase
-        .from('projects')
+        .from('clients')
         .update({ stripe_customer_id: customer.id, updated_at: new Date().toISOString() })
-        .eq('id', project.id);
+        .eq('id', client.id);
       if (updateError) {
         console.error('[api/billing/portal] failed to persist Stripe customer id', updateError);
+      }
+      if (!project.stripe_customer_id) {
+        await supabase
+          .from('projects')
+          .update({ stripe_customer_id: customer.id, updated_at: new Date().toISOString() })
+          .eq('id', project.id);
       }
     }
 

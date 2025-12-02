@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Use an untyped Supabase client for this server-only helper to avoid incorrect `never` inference
-type ServiceClient = ReturnType<typeof createClient<any>>;
+// Use a generic database type for this server-only helper to avoid incorrect `never` inference
+type Database = Record<string, unknown>;
+type ServiceClient = ReturnType<typeof createClient<Database>>;
 
 export type PortalUsageDetail = {
   id?: string;
@@ -11,6 +12,69 @@ export type PortalUsageDetail = {
   markupPercent?: number;
   billedAmount?: number;
 };
+
+export type PortalUsageAggregationInput = {
+  metricType: string;
+  quantity?: number;
+  unitPriceCents?: number;
+  rawCostCents?: number;
+  billedCents?: number;
+  description?: string;
+};
+
+export function buildPortalUsageDetails(
+  inputs: PortalUsageAggregationInput[],
+): PortalUsageDetail[] {
+  const map = new Map<
+    string,
+    {
+      toolName: string;
+      rawCostCents: number;
+      billedCents: number;
+      descriptions: string[];
+    }
+  >();
+
+  inputs.forEach((input) => {
+    const key = input.metricType || 'usage';
+    const existing = map.get(key) ?? {
+      toolName: key,
+      rawCostCents: 0,
+      billedCents: 0,
+      descriptions: [],
+    };
+
+    const unitCents = Number(input.unitPriceCents ?? 0) || 0;
+    const quantity = Number(input.quantity ?? 0) || 0;
+    const computedRaw = Number.isFinite(unitCents * quantity) ? unitCents * quantity : 0;
+    const rawCents = Number(input.rawCostCents ?? computedRaw) || 0;
+    const billedCents = Number(input.billedCents ?? rawCents) || 0;
+
+    existing.rawCostCents += rawCents;
+    existing.billedCents += billedCents;
+    if (input.description) {
+      existing.descriptions.push(input.description);
+    }
+    map.set(key, existing);
+  });
+
+  const details: PortalUsageDetail[] = Array.from(map.values()).map((item) => {
+    const rawCost = item.rawCostCents / 100;
+    const billed = item.billedCents / 100;
+    const markupPercent =
+      rawCost > 0 ? Math.round(((billed - rawCost) / rawCost) * 100 * 10) / 10 : undefined;
+
+    return {
+      toolName: item.toolName,
+      rawCost,
+      billedAmount: billed,
+      markupPercent,
+      description: item.descriptions.join('; ').trim() || undefined,
+    };
+  });
+
+  return details.sort((a, b) => (b.billedAmount ?? 0) - (a.billedAmount ?? 0));
+}
 
 export type PortalShadowItem = {
   id?: string;
@@ -163,7 +227,17 @@ export async function fetchPublicInvoice(shareId: string): Promise<PublicInvoice
 
   const portalPayload = parsePortalPayload(data.portal_payload);
 
-  const lineItems: PortalInvoiceLine[] = (data.line_items ?? []).map((line: any) => {
+  type LineItemRow = {
+    id?: string | number;
+    quantity?: number | null;
+    unit_price_cents?: number | null;
+    amount_cents?: number | null;
+    description?: string | null;
+    line_type?: string | null;
+    metadata?: Record<string, unknown> | null;
+  };
+
+  const lineItems: PortalInvoiceLine[] = ((data.line_items ?? []) as LineItemRow[]).map((line) => {
     const quantity = Number(line.quantity ?? 1) || 1;
     const unitCents = Number(line.unit_price_cents ?? line.amount_cents ?? 0) || 0;
     const amountCents = Number(line.amount_cents ?? Math.round(quantity * unitCents)) || 0;

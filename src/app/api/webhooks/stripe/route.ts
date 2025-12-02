@@ -5,7 +5,8 @@ import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
-type SupabaseAdminClient = SupabaseClient<any>;
+type Database = Record<string, unknown>;
+type SupabaseAdminClient = SupabaseClient<Database>;
 
 export async function POST(req: Request) {
   const stripeSecret = process.env.STRIPE_SECRET_KEY;

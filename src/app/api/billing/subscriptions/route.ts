@@ -72,7 +72,7 @@ export async function PATCH(req: Request) {
     // Load the linked client so we can sync with Stripe
     const { data: client, error: clientError } = await supabase
       .from('clients')
-      .select('id, name, company_name, email, phone')
+      .select('id, name, company_name, email, phone, stripe_customer_id')
       .eq('id', project.client_id)
       .eq('created_by', user.id)
       .maybeSingle();
@@ -116,8 +116,21 @@ export async function PATCH(req: Request) {
         ? payload.baseRetainerCents
         : project.base_retainer_cents ?? 0;
 
-    let stripeCustomerId: string | null = project.stripe_customer_id || null;
+    let stripeCustomerId: string | null =
+      client.stripe_customer_id || project.stripe_customer_id || null;
     let stripeSubscriptionId: string | null = project.stripe_subscription_id || null;
+
+    // Backfill legacy projects where the client does not yet have the Stripe customer reference
+    if (!client.stripe_customer_id && project.stripe_customer_id) {
+      await supabase
+        .from('clients')
+        .update({
+          stripe_customer_id: project.stripe_customer_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', client.id)
+        .eq('created_by', user.id);
+    }
 
     // Ensure a Stripe customer exists when subscriptions are enabled
     if (subscriptionEnabled && !stripeCustomerId) {
@@ -140,6 +153,14 @@ export async function PATCH(req: Request) {
           });
           stripeCustomerId = customer.id;
           updates.stripe_customer_id = customer.id;
+          await supabase
+            .from('clients')
+            .update({
+              stripe_customer_id: customer.id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', client.id)
+            .eq('created_by', user.id);
         } catch (e) {
           console.error('[api/billing/subscriptions] Stripe customer create failed', e);
           return NextResponse.json(

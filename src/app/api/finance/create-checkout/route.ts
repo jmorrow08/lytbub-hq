@@ -20,6 +20,7 @@ type CheckoutPayload = {
 type ClientSummary = {
   id: string;
   name?: string | null;
+  stripe_customer_id?: string | null;
 };
 
 type ProjectSummary = {
@@ -42,6 +43,8 @@ function normalizeClientRelation(
   return {
     id: relation.id,
     name: typeof relation.name === 'string' ? relation.name : null,
+    stripe_customer_id:
+      typeof relation.stripe_customer_id === 'string' ? relation.stripe_customer_id : null,
   };
 }
 
@@ -104,7 +107,7 @@ export async function POST(req: Request) {
     if (clientId) {
       const { data, error: clientError } = await supabase
         .from('clients')
-        .select('id, name')
+        .select('id, name, stripe_customer_id')
         .eq('id', clientId)
         .eq('created_by', user.id)
         .maybeSingle();
@@ -126,7 +129,7 @@ export async function POST(req: Request) {
     if (projectId) {
       const { data: projectData, error: projectError } = await supabase
         .from('projects')
-        .select('id, name, client_id, stripe_customer_id, client:clients(id, name)')
+        .select('id, name, client_id, stripe_customer_id, client:clients(id, name, stripe_customer_id)')
         .eq('id', projectId)
         .eq('created_by', user.id)
         .maybeSingle();
@@ -175,6 +178,11 @@ export async function POST(req: Request) {
     }
 
     const resolvedClient = clientRecord;
+    const resolvedStripeCustomerId =
+      resolvedClient?.stripe_customer_id ??
+      projectRecord?.client?.stripe_customer_id ??
+      projectRecord?.stripe_customer_id ??
+      null;
 
     const clientMetadata: CheckoutMetadata | Record<string, never> =
       resolvedClient !== null
@@ -219,7 +227,7 @@ export async function POST(req: Request) {
     let session: Stripe.Response<Stripe.Checkout.Session>;
     try {
       const enableAutomaticTax = await shouldEnableAutomaticTaxForCustomer(
-        projectRecord?.stripe_customer_id || null,
+        resolvedStripeCustomerId,
       );
       session = await stripe.checkout.sessions.create({
         mode: 'payment',
@@ -233,7 +241,7 @@ export async function POST(req: Request) {
             quantity: 1,
           },
         ],
-        customer: projectRecord?.stripe_customer_id || undefined,
+        customer: resolvedStripeCustomerId || undefined,
         billing_address_collection: 'required',
         payment_method_collection: 'always',
         automatic_tax: { enabled: enableAutomaticTax },

@@ -231,9 +231,22 @@ export interface Client {
   email?: string | null;
   phone?: string | null;
   notes?: string | null;
+  stripe_customer_id?: string | null;
+  client_portal_enabled?: boolean | null;
+  client_portal_last_access?: string | null;
+  client_portal_notes?: string | null;
   created_by?: string | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+export interface ClientPortalUser {
+  id: string;
+  client_id: string;
+  user_id: string;
+  email: string;
+  role: 'owner' | 'viewer' | 'admin';
+  created_at: string;
 }
 
 export interface Task {

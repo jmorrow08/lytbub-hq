@@ -13,6 +13,11 @@ import {
   mapPendingToLineType,
   toNumber,
 } from '@/lib/billing/quickInvoiceUtils';
+import {
+  buildPortalUsageDetails,
+  type PortalPayload,
+  type PortalUsageAggregationInput,
+} from '@/lib/invoice-portal';
 
 type DraftInvoicePayload = {
   billingPeriodId: string;
@@ -95,16 +100,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Client project not found.' }, { status: 404 });
     }
 
-    if (!project.stripe_customer_id) {
+    const clientId = period.client_id || project.client_id || null;
+    if (!clientId) {
+      return NextResponse.json({ error: 'Client is missing for this project.' }, { status: 400 });
+    }
+
+    const { data: clientRecord, error: clientError } = await supabase
+      .from('clients')
+      .select('id, stripe_customer_id')
+      .eq('id', clientId)
+      .eq('created_by', user.id)
+      .maybeSingle();
+
+    if (clientError) {
+      console.error('[api/billing/invoices/draft] client lookup failed', clientError);
+      return NextResponse.json({ error: 'Unable to load client record.' }, { status: 500 });
+    }
+
+    if (!clientRecord) {
+      return NextResponse.json({ error: 'Client not found.' }, { status: 404 });
+    }
+
+    if (!clientRecord.stripe_customer_id && project.stripe_customer_id) {
+      await supabase
+        .from('clients')
+        .update({
+          stripe_customer_id: project.stripe_customer_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', clientRecord.id)
+        .eq('created_by', user.id);
+    }
+
+    const stripeCustomerId = clientRecord.stripe_customer_id || project.stripe_customer_id || null;
+    if (!stripeCustomerId) {
       return NextResponse.json(
         { error: 'Client is missing a Stripe customer. Configure subscription first.' },
         { status: 400 },
       );
-    }
-
-    const clientId = period.client_id || project.client_id || null;
-    if (!clientId) {
-      return NextResponse.json({ error: 'Client is missing for this project.' }, { status: 400 });
     }
 
     const pendingItemIds = Array.isArray(payload.pendingItemIds)
@@ -121,12 +154,15 @@ export async function POST(req: Request) {
       quantity: number | null;
       unit_price_cents: number;
       source_type: string | null;
+      metadata: Record<string, unknown> | null;
     }> = [];
 
     if (pendingItemIds.length > 0) {
       const { data, error: pendingError } = await supabase
         .from('pending_invoice_items')
-        .select('id, project_id, client_id, description, quantity, unit_price_cents, source_type')
+        .select(
+          'id, project_id, client_id, description, quantity, unit_price_cents, source_type, metadata',
+        )
         .in('id', pendingItemIds)
         .eq('created_by', user.id)
         .eq('status', 'pending');
@@ -283,7 +319,7 @@ export async function POST(req: Request) {
     }
 
     const stripeInvoice = await createDraftInvoice({
-      customerId: project.stripe_customer_id,
+      customerId: stripeCustomerId,
       subscriptionId: includeBaseRetainer ? project.stripe_subscription_id || undefined : undefined,
       collectionMethod,
       dueDate: dueDateUnix,
@@ -303,7 +339,7 @@ export async function POST(req: Request) {
         stripeMetadata.manual_entry = 'true';
       }
       await addInvoiceLineItem({
-        customerId: project.stripe_customer_id,
+        customerId: stripeCustomerId,
         invoiceId: stripeInvoice.id,
         description: line.description,
         amountCents: line.unitPriceCents,
@@ -332,7 +368,7 @@ export async function POST(req: Request) {
         client_id: clientId,
         billing_period_id: period.id,
         stripe_invoice_id: stripeInvoice.id,
-        stripe_customer_id: project.stripe_customer_id,
+        stripe_customer_id: stripeCustomerId,
         stripe_subscription_id: includeBaseRetainer ? project.stripe_subscription_id : null,
         subtotal_cents: subtotalCents,
         tax_cents: 0,
@@ -396,6 +432,48 @@ export async function POST(req: Request) {
       );
     }
 
+    let responsePortalPayload: PortalPayload | null = null;
+    try {
+      const usageInputs: PortalUsageAggregationInput[] = pendingItems
+        .filter((item) => item.source_type === 'usage')
+        .map((item) => {
+          const metadata = item.metadata ?? {};
+          const sumCost =
+            Number(metadata.sum_cost_cents ?? metadata.total_cents ?? item.unit_price_cents) || 0;
+          return {
+            metricType: metadata.metric_type ?? 'usage',
+            quantity: Number(metadata.total_rows ?? item.quantity ?? 1) || 1,
+            rawCostCents: sumCost,
+            billedCents: sumCost,
+            description: item.description ?? undefined,
+          };
+        });
+
+      const usageDetails = buildPortalUsageDetails(usageInputs);
+      if (usageDetails.length > 0) {
+        responsePortalPayload = {
+          usageDetails,
+          periodLabel: `${period.period_start} → ${period.period_end}`,
+        };
+        const { error: payloadUpdateError } = await supabase
+          .from('invoices')
+          .update({ portal_payload: responsePortalPayload })
+          .eq('id', invoiceRecord.id);
+        if (payloadUpdateError) {
+          console.warn(
+            '[api/billing/invoices/draft] failed to set portal payload',
+            payloadUpdateError,
+          );
+          responsePortalPayload = null;
+        }
+      }
+    } catch (payloadError) {
+      console.warn(
+        '[api/billing/invoices/draft] unable to build usage detail payload',
+        payloadError,
+      );
+    }
+
     if (pendingItems.length > 0 && savedLineItems) {
       const lineLookup = new Map<string, string>();
       for (const line of savedLineItems) {
@@ -425,6 +503,7 @@ export async function POST(req: Request) {
         ...invoiceRecord,
         line_items: savedLineItems,
         stripe_invoice_id: stripeInvoice.id,
+        portal_payload: responsePortalPayload ?? invoiceRecord.portal_payload ?? {},
       },
     });
   } catch (error) {

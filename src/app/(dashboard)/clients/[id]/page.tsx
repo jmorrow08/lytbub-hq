@@ -6,15 +6,28 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import {
   getBillingPeriods,
   getClient,
   getClientProjects,
+  getClientPortalMembers,
   getInvoices,
   getPayments,
+  removeClientPortalMember,
+  updateClientPortalMemberRole,
+  updateClientPortalSettings,
   updateSubscriptionSettings,
 } from '@/lib/api';
-import type { BillingPeriod, Client, Invoice, Payment, Project } from '@/types';
+import type {
+  BillingPeriod,
+  Client,
+  ClientPortalUser,
+  Invoice,
+  Payment,
+  Project,
+} from '@/types';
 import { SubscriptionManager } from '@/components/billing/SubscriptionManager';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 
@@ -39,27 +52,41 @@ export default function ClientDetailPage() {
   const [billingPeriods, setBillingPeriods] = useState<BillingPeriod[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<string | null>(null);
+  const [portalMembers, setPortalMembers] = useState<ClientPortalUser[]>([]);
+  const [portalEnabled, setPortalEnabled] = useState(true);
+  const [portalNotes, setPortalNotes] = useState('');
+  const [portalSaving, setPortalSaving] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
+  const [memberActionId, setMemberActionId] = useState<string | null>(null);
+  const [memberRoleSavingId, setMemberRoleSavingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
     const load = async () => {
       setLoading(true);
       try {
-        const [clientRecord, projectList, paymentList, invoiceList, periodList] = await Promise.all(
-          [
-            getClient(clientId),
-            getClientProjects(),
-            getPayments({ clientId }),
-            getInvoices({ clientId }),
-            getBillingPeriods({ clientId }),
-          ],
-        );
+        const [
+          clientRecord,
+          projectList,
+          paymentList,
+          invoiceList,
+          periodList,
+          memberList,
+        ] = await Promise.all([
+          getClient(clientId),
+          getClientProjects(),
+          getPayments({ clientId }),
+          getInvoices({ clientId }),
+          getBillingPeriods({ clientId }),
+          getClientPortalMembers(clientId),
+        ]);
         setClient(clientRecord);
         const clientProjects = projectList.filter((project) => project.client_id === clientId);
         setProjects(clientProjects);
         setPayments(paymentList);
         setInvoices(invoiceList);
         setBillingPeriods(periodList);
+        setPortalMembers(memberList);
       } catch (error) {
         console.error('Error loading client details', error);
       } finally {
@@ -68,6 +95,12 @@ export default function ClientDetailPage() {
     };
     load();
   }, [clientId]);
+
+  useEffect(() => {
+    if (!client) return;
+    setPortalEnabled(client.client_portal_enabled !== false);
+    setPortalNotes(client.client_portal_notes ?? '');
+  }, [client]);
 
   const hasData = useMemo(
     () => Boolean(projects.length || payments.length || invoices.length),
@@ -94,6 +127,55 @@ export default function ClientDetailPage() {
       console.error('Error updating subscription', error);
     } finally {
       setUpdatingSubscriptionId(null);
+    }
+  };
+
+  const handlePortalSettingsSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!clientId) return;
+    setPortalSaving(true);
+    setPortalError(null);
+    try {
+      const updated = await updateClientPortalSettings(clientId, {
+        portalEnabled,
+        notes: portalNotes.trim().length > 0 ? portalNotes : null,
+      });
+      setClient(updated);
+    } catch (error) {
+      console.error('Error updating portal settings', error);
+      setPortalError(
+        error instanceof Error ? error.message : 'Unable to update portal settings.',
+      );
+    } finally {
+      setPortalSaving(false);
+    }
+  };
+
+  const handleRemoveMember = async (membershipId: string) => {
+    if (!clientId) return;
+    setMemberActionId(membershipId);
+    try {
+      await removeClientPortalMember(clientId, membershipId);
+      setPortalMembers((prev) => prev.filter((member) => member.id !== membershipId));
+    } catch (error) {
+      console.error('Error removing client member', error);
+    } finally {
+      setMemberActionId(null);
+    }
+  };
+
+  const handleRoleChange = async (membershipId: string, role: 'viewer' | 'admin') => {
+    if (!clientId) return;
+    setMemberRoleSavingId(membershipId);
+    try {
+      const updated = await updateClientPortalMemberRole(clientId, membershipId, role);
+      setPortalMembers((prev) =>
+        prev.map((member) => (member.id === membershipId ? updated : member)),
+      );
+    } catch (error) {
+      console.error('Error updating client member role', error);
+    } finally {
+      setMemberRoleSavingId(null);
     }
   };
 
@@ -245,6 +327,119 @@ export default function ClientDetailPage() {
           </Card>
         </div>
       )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Client Portal Settings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={handlePortalSettingsSave}>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold">Portal access</p>
+                  <p className="text-sm text-muted-foreground">
+                    Toggle the shared billing portal for this client.
+                  </p>
+                </div>
+                <Switch checked={portalEnabled} onCheckedChange={setPortalEnabled} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1" htmlFor="portal-notes">
+                  Internal notes
+                </label>
+                <Textarea
+                  id="portal-notes"
+                  value={portalNotes}
+                  onChange={(event) => setPortalNotes(event.target.value)}
+                  placeholder="Visible only to your team."
+                  rows={4}
+                />
+              </div>
+              {client.client_portal_last_access && (
+                <p className="text-xs text-muted-foreground">
+                  Last portal visit:{' '}
+                  {dateFormatter.format(new Date(client.client_portal_last_access))}
+                </p>
+              )}
+              {portalError && <p className="text-sm text-red-500">{portalError}</p>}
+              <div className="flex items-center gap-3">
+                <Button type="submit" disabled={portalSaving}>
+                  {portalSaving ? 'Saving…' : 'Save Portal Settings'}
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Clients can enroll themselves from any invoice share link.
+                </p>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Client Portal Members</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {portalMembers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No external users yet. Share an invoice/public link so your client can sign in —
+                once they do, their account will appear here.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {portalMembers.map((member) => (
+                  <li
+                    key={member.id}
+                    className="rounded-md border border-border/60 p-3 text-sm text-muted-foreground"
+                  >
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="font-medium text-foreground">{member.email}</p>
+                        <p className="text-xs">
+                          Joined {dateFormatter.format(new Date(member.created_at))}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {member.role === 'owner' ? (
+                          <span className="text-xs font-semibold uppercase text-foreground">
+                            Owner
+                          </span>
+                        ) : (
+                          <select
+                            value={member.role}
+                            onChange={(event) =>
+                              handleRoleChange(
+                                member.id,
+                                event.target.value === 'admin' ? 'admin' : 'viewer',
+                              )
+                            }
+                            disabled={memberRoleSavingId === member.id}
+                            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                          >
+                            <option value="viewer">Viewer</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRemoveMember(member.id)}
+                          disabled={member.role === 'owner' || memberActionId === member.id}
+                        >
+                          {memberActionId === member.id ? 'Removing…' : 'Remove'}
+                        </Button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Workspace owners always have access to this portal.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       {hasData && (
         <div className="grid gap-4 lg:grid-cols-3">

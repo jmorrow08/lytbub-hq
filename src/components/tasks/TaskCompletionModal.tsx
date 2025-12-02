@@ -50,11 +50,14 @@ function TaskCompletionModalContent({
 
   useEffect(() => {
     if (!open) return;
-    setFinancialImpact('');
-    setSkill('');
-    setKudos('');
-    setFeeling('');
-    setInterruptionReason('');
+    // Use setTimeout to avoid synchronous setState in effect
+    setTimeout(() => {
+      setFinancialImpact('');
+      setSkill('');
+      setKudos('');
+      setFeeling('');
+      setInterruptionReason('');
+    }, 0);
   }, [open, mode]);
 
   const handleSubmit = (e: React.FormEvent) => {

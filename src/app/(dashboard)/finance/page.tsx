@@ -610,7 +610,7 @@ export default function FinancePage() {
     let parsedPayload: Record<string, unknown>;
     try {
       parsedPayload = portalPayloadText.trim() ? JSON.parse(portalPayloadText) : {};
-    } catch (error) {
+    } catch {
       setPortalStatus('Portal payload must be valid JSON.');
       return;
     }

@@ -35,6 +35,7 @@ import type {
   UsageEvent,
   Invoice,
   Client,
+  ClientPortalUser,
   CreateClientData,
   UpdateClientData,
   PerformanceMetrics,
@@ -506,6 +507,48 @@ export const getClient = async (id: string): Promise<Client | null> => {
 
   if (error) throw error;
   return (data as Client | null) ?? null;
+};
+
+export const updateClientPortalSettings = async (
+  clientId: string,
+  updates: { portalEnabled?: boolean; notes?: string | null },
+): Promise<Client> => {
+  const data = await authedRequest<{ client: Client }>(`/api/admin/clients/${clientId}/portal`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+  return data.client;
+};
+
+export const getClientPortalMembers = async (clientId: string): Promise<ClientPortalUser[]> => {
+  const data = await authedRequest<{ members: ClientPortalUser[] }>(
+    `/api/admin/clients/${clientId}/users`,
+  );
+  return data.members;
+};
+
+export const updateClientPortalMemberRole = async (
+  clientId: string,
+  membershipId: string,
+  role: 'viewer' | 'admin',
+): Promise<ClientPortalUser> => {
+  const data = await authedRequest<{ member: ClientPortalUser }>(
+    `/api/admin/clients/${clientId}/users/${membershipId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    },
+  );
+  return data.member;
+};
+
+export const removeClientPortalMember = async (
+  clientId: string,
+  membershipId: string,
+): Promise<void> => {
+  await authedRequest(`/api/admin/clients/${clientId}/users/${membershipId}`, {
+    method: 'DELETE',
+  });
 };
 
 export const createClient = async (payload: CreateClientData): Promise<Client> => {

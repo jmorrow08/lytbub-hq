@@ -280,7 +280,6 @@ export async function shouldEnableAutomaticTaxForCustomer(
     return hasCountry && (hasPostal || hasStateCity);
   } catch (error) {
     // Be conservative on errors: disable automatic tax rather than failing the operation
-    // eslint-disable-next-line no-console
     console.warn('[stripe] unable to inspect customer address for automatic tax', error);
     return false;
   }

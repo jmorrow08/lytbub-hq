@@ -23,18 +23,23 @@ export function FocusModeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') {
-      setLoading(false);
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => setLoading(false), 0);
       return;
     }
 
     const stored = localStorage.getItem(STORAGE_KEY) as FocusMode | null;
     if (stored === 'HOLISTIC' || stored === 'CORPORATE') {
-      setFocusModeState(stored);
-      applyDocumentTheme(stored);
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => {
+        setFocusModeState(stored);
+        applyDocumentTheme(stored);
+      }, 0);
     } else {
       applyDocumentTheme('CORPORATE');
     }
-    setLoading(false);
+    // Use setTimeout to avoid synchronous setState in effect
+    setTimeout(() => setLoading(false), 0);
   }, []);
 
   const handleSetFocusMode = (mode: FocusMode) => {

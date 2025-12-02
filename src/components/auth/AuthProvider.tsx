@@ -1,6 +1,14 @@
 'use client';
 
-import { type ReactNode, createContext, useContext, useMemo, useState, useEffect, useCallback } from 'react';
+import {
+  type ReactNode,
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+} from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -15,6 +23,12 @@ type AuthContextValue = {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<AuthActionResult>;
   signUp: (email: string, password: string) => Promise<AuthActionResult>;
+  signInWithProvider: (
+    provider: 'google',
+    options?: {
+      redirectTo?: string;
+    },
+  ) => Promise<AuthActionResult>;
   signOut: () => Promise<void>;
 };
 
@@ -78,6 +92,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const signInWithProvider = useCallback<AuthContextValue['signInWithProvider']>(
+    async (provider, options) => {
+      const origin =
+        typeof window !== 'undefined'
+          ? window.location.origin
+          : process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ?? '';
+      if (!origin) {
+        return {
+          error:
+            'Cannot determine site origin for OAuth redirect. Set NEXT_PUBLIC_SITE_URL or run in browser.',
+        };
+      }
+
+      const nextPath = options?.redirectTo ?? '/';
+      const callbackUrl = `${origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: callbackUrl,
+        },
+      });
+
+      if (error) {
+        return { error: error.message };
+      }
+
+      return { message: 'Redirecting to provider…' };
+    },
+    [],
+  );
+
   const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
@@ -92,9 +138,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       signIn,
       signUp,
+      signInWithProvider,
       signOut,
     }),
-    [session, loading, signIn, signUp, signOut]
+    [session, loading, signIn, signUp, signInWithProvider, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
