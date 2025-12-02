@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 type RouteParams = {
-  params: { clientId: string; membershipId: string };
+  params: Promise<{ clientId: string; membershipId: string }>;
 };
 
 type Database = Record<string, unknown>;
@@ -96,11 +96,12 @@ async function loadMembership(
   return data;
 }
 
-export async function PATCH(req: Request, { params }: RouteParams) {
+export async function PATCH(req: Request, context: RouteParams) {
   try {
+    const { clientId, membershipId } = await context.params;
     const { supabase, userId } = await getSupabaseClient(req);
-    await assertClientOwnership(supabase, params.clientId, userId);
-    await loadMembership(supabase, params.clientId, params.membershipId);
+    await assertClientOwnership(supabase, clientId, userId);
+    await loadMembership(supabase, clientId, membershipId);
 
     const body = (await req.json().catch(() => null)) as { role?: string } | null;
     if (!body || typeof body.role !== 'string') {
@@ -115,8 +116,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const { data, error } = await supabase
       .from('client_users')
       .update({ role })
-      .eq('id', params.membershipId)
-      .eq('client_id', params.clientId)
+      .eq('id', membershipId)
+      .eq('client_id', clientId)
       .select('id, client_id, user_id, email, role, created_at')
       .maybeSingle();
 
@@ -134,17 +135,18 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(req: Request, { params }: RouteParams) {
+export async function DELETE(req: Request, context: RouteParams) {
   try {
+    const { clientId, membershipId } = await context.params;
     const { supabase, userId } = await getSupabaseClient(req);
-    await assertClientOwnership(supabase, params.clientId, userId);
-    await loadMembership(supabase, params.clientId, params.membershipId);
+    await assertClientOwnership(supabase, clientId, userId);
+    await loadMembership(supabase, clientId, membershipId);
 
     const { error } = await supabase
       .from('client_users')
       .delete()
-      .eq('id', params.membershipId)
-      .eq('client_id', params.clientId);
+      .eq('id', membershipId)
+      .eq('client_id', clientId);
 
     if (error) {
       console.error('[api/admin/clients/:id/users/:memberId] delete failed', error);

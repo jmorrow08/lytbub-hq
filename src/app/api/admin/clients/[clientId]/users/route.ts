@@ -3,7 +3,12 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
 
-export async function GET(req: Request, { params }: { params: { clientId: string } }) {
+type RouteContext = {
+  params: Promise<{ clientId: string }>;
+};
+
+export async function GET(req: Request, context: RouteContext) {
+  const { clientId } = await context.params;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -32,7 +37,7 @@ export async function GET(req: Request, { params }: { params: { clientId: string
   const { data: client, error: clientError } = await supabase
     .from('clients')
     .select('id')
-    .eq('id', params.clientId)
+    .eq('id', clientId)
     .eq('created_by', user.id)
     .maybeSingle();
 
@@ -48,7 +53,7 @@ export async function GET(req: Request, { params }: { params: { clientId: string
   const { data: members, error: memberError } = await supabase
     .from('client_users')
     .select('id, client_id, user_id, email, role, created_at')
-    .eq('client_id', params.clientId)
+    .eq('client_id', clientId)
     .order('created_at', { ascending: true });
 
   if (memberError) {
@@ -58,4 +63,3 @@ export async function GET(req: Request, { params }: { params: { clientId: string
 
   return NextResponse.json({ members: members ?? [] });
 }
-

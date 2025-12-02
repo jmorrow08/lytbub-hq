@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const role = client.created_by === user.id ? 'admin' : 'viewer';
+  const role = client.created_by === user.id ? 'owner' : 'viewer';
 
   const { error: upsertError } = await serviceClient.from('client_users').upsert(
     {
@@ -131,5 +131,3 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true, clientId: client.id, role });
 }
-
-

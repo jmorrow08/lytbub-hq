@@ -4,8 +4,12 @@ import { authorizeClientRequest, getClientPortalServiceClient } from '@/lib/auth
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
 
-export async function GET(req: Request, { params }: { params: { invoiceId: string } }) {
-  const invoiceId = params.invoiceId;
+type RouteContext = {
+  params: Promise<{ invoiceId: string }>;
+};
+
+export async function GET(req: Request, context: RouteContext) {
+  const { invoiceId } = await context.params;
   if (!invoiceId) {
     return NextResponse.json({ error: 'Invoice ID is required.' }, { status: 400 });
   }
@@ -165,5 +169,3 @@ export async function GET(req: Request, { params }: { params: { invoiceId: strin
     },
   });
 }
-
-

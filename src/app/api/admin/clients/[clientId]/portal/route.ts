@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-export async function PATCH(req: Request, { params }: { params: { clientId: string } }) {
+type RouteContext = {
+  params: Promise<{ clientId: string }>;
+};
+
+export async function PATCH(req: Request, context: RouteContext) {
+  const { clientId } = await context.params;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -55,7 +60,7 @@ export async function PATCH(req: Request, { params }: { params: { clientId: stri
   const { data, error } = await supabase
     .from('clients')
     .update(updates)
-    .eq('id', params.clientId)
+    .eq('id', clientId)
     .eq('created_by', user.id)
     .select('*')
     .maybeSingle();
@@ -74,5 +79,3 @@ export async function PATCH(req: Request, { params }: { params: { clientId: stri
 
   return NextResponse.json({ client: data });
 }
-
-

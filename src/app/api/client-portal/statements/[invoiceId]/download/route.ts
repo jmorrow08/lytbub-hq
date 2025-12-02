@@ -88,9 +88,13 @@ function buildCsvContent(invoice: InvoiceForCsv) {
     .join('\n');
 }
 
-export async function GET(req: Request, { params }: { params: { invoiceId: string } }) {
+type RouteContext = {
+  params: Promise<{ invoiceId: string }>;
+};
+
+export async function GET(req: Request, context: RouteContext) {
   const type = new URL(req.url).searchParams.get('type') ?? 'pdf';
-  const invoiceId = params.invoiceId;
+  const { invoiceId } = await context.params;
 
   if (!invoiceId) {
     return NextResponse.json({ error: 'Invoice ID is required.' }, { status: 400 });
@@ -151,5 +155,3 @@ export async function GET(req: Request, { params }: { params: { invoiceId: strin
 
   return NextResponse.json({ error: 'Unsupported download type.' }, { status: 400 });
 }
-
-
