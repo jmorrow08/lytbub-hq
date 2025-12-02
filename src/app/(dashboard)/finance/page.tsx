@@ -1530,10 +1530,20 @@ export default function FinancePage() {
                 finalizingId={finalizingId}
                 markingId={markingId}
                 clientLookup={clientLookup}
-                onPortalSelect={(invoice) => setPortalInvoiceId(invoice.id)}
+                onPortalSelect={(invoice) => {
+                  setPortalInvoiceId(invoice.id);
+                  // Smoothly scroll the portal editor into view to make the action visible.
+                  // This addresses UX feedback that “nothing happens” when clicking Portal.
+                  if (typeof window !== 'undefined') {
+                    const el = document.getElementById('invoice-portal-editor');
+                    if (el && 'scrollIntoView' in el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }
+                }}
               />
 
-              <Card>
+              <Card id="invoice-portal-editor">
                 <CardHeader>
                   <CardTitle>Invoice Portal Link &amp; Payload</CardTitle>
                   <p className="text-sm text-muted-foreground">

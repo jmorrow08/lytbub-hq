@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { notFound } from 'next/navigation';
 import { fetchPublicInvoice } from '@/lib/invoice-portal';
 import { InvoicePageShell } from '@/components/invoice/InvoicePageShell';
