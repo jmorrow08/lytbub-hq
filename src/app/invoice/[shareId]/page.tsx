@@ -6,11 +6,12 @@ import { InvoicePageShell } from '@/components/invoice/InvoicePageShell';
 import type { PublicInvoiceView } from '@/lib/invoice-portal';
 
 type PageParams = {
-  params: { shareId: string };
+  params: Promise<{ shareId: string }>;
 };
 
 export default async function InvoiceSharePage({ params }: PageParams) {
   // Resolve origin to call our own public API (avoids any env drift).
+  const { shareId } = await params;
   const hdrs = await headers();
   const host = hdrs.get('x-forwarded-host') || hdrs.get('host') || '';
   const proto = hdrs.get('x-forwarded-proto') || 'https';
@@ -18,7 +19,7 @@ export default async function InvoiceSharePage({ params }: PageParams) {
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') || (host ? `${proto}://${host}` : '');
 
   try {
-    const res = await fetch(`${origin}/api/public-invoices/${params.shareId}`, {
+    const res = await fetch(`${origin}/api/public-invoices/${shareId}`, {
       cache: 'no-store',
     });
     const data = (await res.json().catch(() => null)) as {
