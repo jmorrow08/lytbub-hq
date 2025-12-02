@@ -121,7 +121,7 @@ export async function PATCH(req: Request, context: RouteParams) {
 
     const { data, error } = await supabase
       .from('client_users')
-      .update({ role })
+      .update({ role } as { role: 'admin' | 'viewer' })
       .eq('id', membershipId)
       .eq('client_id', clientId)
       .select('id, client_id, user_id, email, role, created_at')

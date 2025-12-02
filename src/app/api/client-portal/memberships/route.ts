@@ -78,7 +78,7 @@ export async function GET(req: Request) {
       });
     } else {
       const existing = responseMap.get(client.id);
-      if (existing && existing.role !== 'owner' && existing.role !== 'admin') {
+      if (existing && existing.role !== 'owner') {
         responseMap.set(client.id, {
           ...existing,
           role: 'owner',
