@@ -15,16 +15,16 @@ export default async function InvoiceSharePage({ params }: PageParams) {
   const host = hdrs.get('x-forwarded-host') || hdrs.get('host') || '';
   const proto = hdrs.get('x-forwarded-proto') || 'https';
   const origin =
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
-    (host ? `${proto}://${host}` : '');
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') || (host ? `${proto}://${host}` : '');
 
   try {
     const res = await fetch(`${origin}/api/public-invoices/${params.shareId}`, {
       cache: 'no-store',
     });
-    const data = (await res.json().catch(() => null)) as
-      | { ok: boolean; invoice?: PublicInvoiceView }
-      | null;
+    const data = (await res.json().catch(() => null)) as {
+      ok: boolean;
+      invoice?: PublicInvoiceView;
+    } | null;
     const invoice = data && data.ok ? (data.invoice as PublicInvoiceView) : null;
     if (!invoice) {
       notFound();
