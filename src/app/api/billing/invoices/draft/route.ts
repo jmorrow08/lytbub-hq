@@ -440,8 +440,9 @@ export async function POST(req: Request) {
           const metadata = item.metadata ?? {};
           const sumCost =
             Number(metadata.sum_cost_cents ?? metadata.total_cents ?? item.unit_price_cents) || 0;
+          const metricType = typeof metadata.metric_type === 'string' ? metadata.metric_type : 'usage';
           return {
-            metricType: metadata.metric_type ?? 'usage',
+            metricType,
             quantity: Number(metadata.total_rows ?? item.quantity ?? 1) || 1,
             rawCostCents: sumCost,
             billedCents: sumCost,

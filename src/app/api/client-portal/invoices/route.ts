@@ -33,8 +33,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 });
   }
 
-  const query = serviceClient
-    .from('invoices')
+  const query = (serviceClient.from('invoices') as any)
     .select(
       `id, invoice_number, status, due_date, created_at, total_cents, net_amount_cents, subtotal_cents, tax_cents, public_share_id, public_share_expires_at, stripe_hosted_url, stripe_pdf_url`,
     )
@@ -46,7 +45,23 @@ export async function GET(req: Request) {
     query.in('status', statusFilter);
   }
 
-  const { data, error } = await query;
+  const result = await query;
+  const data = result.data as Array<{
+    id: string;
+    invoice_number: string | null;
+    status: string | null;
+    due_date: string | null;
+    created_at: string;
+    total_cents: number | null;
+    net_amount_cents: number | null;
+    subtotal_cents: number | null;
+    tax_cents: number | null;
+    public_share_id: string | null;
+    public_share_expires_at: string | null;
+    stripe_hosted_url: string | null;
+    stripe_pdf_url: string | null;
+  }> | null;
+  const error = result.error;
 
   if (error) {
     console.error('[client-portal invoices] Failed to load invoices', error);

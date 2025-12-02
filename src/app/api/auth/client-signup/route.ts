@@ -46,11 +46,12 @@ export async function POST(req: Request) {
   let resolvedClientId = explicitClientId;
 
   if (!resolvedClientId && shareId) {
-    const { data: invoice, error: invoiceError } = await serviceClient
-      .from('invoices')
+    const result = await (serviceClient.from('invoices') as any)
       .select('client_id, public_share_expires_at')
       .eq('public_share_id', shareId)
       .maybeSingle();
+    const invoice = result.data as { client_id: string; public_share_expires_at: string | null } | null;
+    const invoiceError = result.error;
 
     if (invoiceError) {
       console.error('[client-signup] Failed to lookup invoice by shareId', {
@@ -78,11 +79,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unable to determine client.' }, { status: 400 });
   }
 
-  const { data: client, error: clientError } = await serviceClient
-    .from('clients')
+  const clientResult = await (serviceClient.from('clients') as any)
     .select('id, created_by, client_portal_enabled')
     .eq('id', resolvedClientId)
     .maybeSingle();
+  const client = clientResult.data as { id: string; created_by: string; client_portal_enabled: boolean | null } | null;
+  const clientError = clientResult.error;
 
   if (clientError) {
     console.error('[client-signup] Failed to fetch client', {
@@ -110,7 +112,7 @@ export async function POST(req: Request) {
 
   const role = client.created_by === user.id ? 'owner' : 'viewer';
 
-  const { error: upsertError } = await serviceClient.from('client_users').upsert(
+  const { error: upsertError } = await (serviceClient.from('client_users') as any).upsert(
     {
       client_id: client.id,
       user_id: user.id,

@@ -119,13 +119,15 @@ export async function PATCH(req: Request, context: RouteParams) {
       return NextResponse.json({ error: 'role must be "viewer" or "admin".' }, { status: 400 });
     }
 
-    const { data, error } = await supabase
-      .from('client_users')
-      .update({ role } as { role: 'admin' | 'viewer' })
+    const updatePayload: Record<string, unknown> = { role };
+
+    const { data, error } = await (supabase
+      .from('client_users') as any)
+      .update(updatePayload)
       .eq('id', membershipId)
       .eq('client_id', clientId)
       .select('id, client_id, user_id, email, role, created_at')
-      .maybeSingle();
+      .maybeSingle() as any;
 
     if (error || !data) {
       console.error('[api/admin/clients/:id/users/:memberId] update failed', error);

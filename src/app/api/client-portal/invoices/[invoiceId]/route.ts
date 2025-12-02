@@ -22,13 +22,42 @@ export async function GET(req: Request, context: RouteContext) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 });
   }
 
-  const { data: invoice, error } = await serviceClient
-    .from('invoices')
+  const invoiceResult = await (serviceClient.from('invoices') as any)
     .select(
       `id, client_id, invoice_number, status, due_date, created_at, total_cents, subtotal_cents, tax_cents, net_amount_cents, stripe_invoice_id, stripe_hosted_url, stripe_pdf_url, public_share_id, public_share_expires_at, portal_payload, metadata, line_items:invoice_line_items(*), project:projects(name)`,
     )
     .eq('id', invoiceId)
     .maybeSingle();
+  const invoice = invoiceResult.data as {
+    id: string;
+    client_id: string;
+    invoice_number: string | null;
+    status: string | null;
+    due_date: string | null;
+    created_at: string;
+    total_cents: number | null;
+    subtotal_cents: number | null;
+    tax_cents: number | null;
+    net_amount_cents: number | null;
+    stripe_invoice_id: string | null;
+    stripe_hosted_url: string | null;
+    stripe_pdf_url: string | null;
+    public_share_id: string | null;
+    public_share_expires_at: string | null;
+    portal_payload: Record<string, unknown> | null;
+    metadata: Record<string, unknown> | null;
+    line_items: Array<{
+      id: string;
+      description?: string | null;
+      quantity?: number | null;
+      unit_price_cents?: number | null;
+      amount_cents?: number | null;
+      line_type?: string | null;
+      metadata?: Record<string, unknown> | null;
+    }> | null;
+    project: { name?: string | null } | Array<{ name?: string | null }> | null;
+  } | null;
+  const error = invoiceResult.error;
 
   if (error) {
     console.error('[client-portal invoice detail] Failed to load invoice', error);
@@ -62,10 +91,10 @@ export async function GET(req: Request, context: RouteContext) {
           const pi = await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent, {
             expand: ['charges'],
           });
-          charges = (pi.charges as Stripe.ApiList<Stripe.Charge>)?.data ?? [];
+          charges = ((pi as any).charges as Stripe.ApiList<Stripe.Charge>)?.data ?? [];
         } else {
           const existingCharges = (
-            stripeInvoice.payment_intent.charges as Stripe.ApiList<Stripe.Charge>
+            (stripeInvoice.payment_intent as any).charges as Stripe.ApiList<Stripe.Charge>
           )?.data;
           const pi =
             existingCharges && existingCharges.length > 0
@@ -73,7 +102,7 @@ export async function GET(req: Request, context: RouteContext) {
               : await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent.id, {
                   expand: ['charges'],
                 });
-          charges = (pi.charges as Stripe.ApiList<Stripe.Charge>)?.data ?? [];
+          charges = ((pi as any).charges as Stripe.ApiList<Stripe.Charge>)?.data ?? [];
         }
       } else if (stripeInvoice.charge) {
         if (typeof stripeInvoice.charge === 'string') {
