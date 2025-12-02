@@ -232,3 +232,4 @@ export async function authorizeClientRequest(
 export function getClientPortalServiceClient() {
   return getServiceClient();
 }
+

@@ -60,3 +60,4 @@ CREATE POLICY client_users_client_read
   );
 
 COMMIT;
+

@@ -27,3 +27,4 @@ WHERE c.id = pc.client_id
   AND c.stripe_customer_id IS NULL;
 
 COMMIT;
+

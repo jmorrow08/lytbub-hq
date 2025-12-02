@@ -471,3 +471,4 @@ export default function ClientStatementDetailPage() {
     </div>
   );
 }
+

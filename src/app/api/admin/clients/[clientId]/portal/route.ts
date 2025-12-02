@@ -74,3 +74,4 @@ export async function PATCH(req: Request, { params }: { params: { clientId: stri
 
   return NextResponse.json({ client: data });
 }
+
