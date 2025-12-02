@@ -4,6 +4,7 @@ export const runtime = 'nodejs';
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import type { CheckoutMetadata } from '@/types';
+import { shouldEnableAutomaticTaxForCustomer } from '@/lib/stripe';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-06-20';
 const STRIPE_FUNCTION_NAME = 'stripe_checkout_create';
@@ -217,6 +218,9 @@ export async function POST(req: Request) {
 
     let session: Stripe.Response<Stripe.Checkout.Session>;
     try {
+      const enableAutomaticTax = await shouldEnableAutomaticTaxForCustomer(
+        projectRecord?.stripe_customer_id || null,
+      );
       session = await stripe.checkout.sessions.create({
         mode: 'payment',
         line_items: [
@@ -232,7 +236,7 @@ export async function POST(req: Request) {
         customer: projectRecord?.stripe_customer_id || undefined,
         billing_address_collection: 'required',
         payment_method_collection: 'always',
-        automatic_tax: { enabled: true },
+        automatic_tax: { enabled: enableAutomaticTax },
         success_url: `${siteUrl}/payment/success?paymentId=${paymentId}`,
         cancel_url: `${siteUrl}/payment/cancel?paymentId=${paymentId}`,
         customer_email: payload?.customerEmail || undefined,

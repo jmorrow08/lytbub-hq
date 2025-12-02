@@ -103,7 +103,7 @@ export async function POST(req: Request) {
       );
     }
 
-    let totalCostCents = 0;
+    let totalCostDollars = 0;
     let totalTokens = 0;
     let validRows = 0;
     let firstDate: Date | null = null;
@@ -126,12 +126,11 @@ export async function POST(req: Request) {
         return;
       }
 
-      const costCents = Math.round(costDollars * 100);
-      if (!Number.isFinite(costCents) || costCents <= 0) {
-        parseErrors.push(`Row ${index + 1}: cost must be at least $0.01.`);
+      if (!Number.isFinite(costDollars) || costDollars <= 0) {
+        parseErrors.push(`Row ${index + 1}: cost is $0; skipped.`);
         return;
       }
-      totalCostCents += costCents;
+      totalCostDollars += costDollars;
 
       const tokensValue =
         typeof row.total_tokens === 'number' && Number.isFinite(row.total_tokens)
@@ -144,7 +143,8 @@ export async function POST(req: Request) {
       if (!lastDate || parsedDate > lastDate) lastDate = parsedDate;
     });
 
-    if (validRows === 0 || totalCostCents <= 0) {
+    const totalCostCents = Math.max(0, Math.round(totalCostDollars * 100));
+    if (validRows === 0 || totalCostDollars <= 0) {
       return NextResponse.json(
         { error: 'No valid rows to import.', details: parseErrors },
         { status: 400 },

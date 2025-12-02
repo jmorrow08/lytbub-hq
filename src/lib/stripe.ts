@@ -109,6 +109,7 @@ export async function createDraftInvoice({
   description,
 }: DraftInvoiceArgs): Promise<Stripe.Invoice> {
   const stripe = getStripe();
+  const enableAutomaticTax = await shouldEnableAutomaticTaxForCustomer(customerId);
   return stripe.invoices.create({
     customer: customerId,
     subscription: subscriptionId ?? undefined,
@@ -118,7 +119,7 @@ export async function createDraftInvoice({
     metadata,
     footer,
     description,
-    automatic_tax: { enabled: true },
+    automatic_tax: { enabled: enableAutomaticTax },
   });
 }
 
@@ -218,7 +219,7 @@ export async function setupSubscription({
         price: price.id,
       },
     ],
-    automatic_tax: { enabled: true },
+    automatic_tax: { enabled: await shouldEnableAutomaticTaxForCustomer(customerId) },
     payment_settings: {
       save_default_payment_method: 'on_subscription',
     },
@@ -255,6 +256,34 @@ export async function calculateTax({
 
 export async function ensureStripeConfigured(): Promise<void> {
   getStripe();
+}
+
+/**
+ * Returns true when the Stripe customer has enough location information
+ * to safely enable automatic tax. We require a country and either a postal
+ * code or both state and city (US-friendly heuristic).
+ */
+export async function shouldEnableAutomaticTaxForCustomer(
+  customerId?: string | null,
+): Promise<boolean> {
+  try {
+    if (!customerId) return false;
+    const stripe = getStripe();
+    const customer = await stripe.customers.retrieve(customerId);
+    // If the customer is deleted or not a full object, disable
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const addr = (customer as any)?.address as Stripe.Address | null | undefined;
+    if (!addr) return false;
+    const hasCountry = Boolean(addr.country);
+    const hasPostal = Boolean(addr.postal_code);
+    const hasStateCity = Boolean(addr.state && addr.city);
+    return hasCountry && (hasPostal || hasStateCity);
+  } catch (error) {
+    // Be conservative on errors: disable automatic tax rather than failing the operation
+    // eslint-disable-next-line no-console
+    console.warn('[stripe] unable to inspect customer address for automatic tax', error);
+    return false;
+  }
 }
 
 /**
