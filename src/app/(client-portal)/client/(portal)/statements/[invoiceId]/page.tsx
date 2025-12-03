@@ -46,6 +46,9 @@ type InvoiceDetail = {
       totalImpliedValue?: number;
       complimentaryValue?: number;
       note?: string;
+      retainerCurrentCents?: number;
+      retainerNormalCents?: number;
+      retainerIncludes?: string[];
     };
     aiNotes?: string;
     roadmapUpdates?: string[];

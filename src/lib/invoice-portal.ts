@@ -80,7 +80,7 @@ export function buildPortalUsageDetails(
 export type PortalShadowItem = {
   id?: string;
   label: string;
-  description: string;
+  description?: string;
   hours?: number;
   marketRatePerHour?: number;
   impliedValue?: number;

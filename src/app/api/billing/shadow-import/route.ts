@@ -73,14 +73,14 @@ export async function POST(req: Request) {
       warnings = result.warnings;
     } else if (isPdf) {
       // Best-effort PDF text extraction using dynamic import if available
+      let parser: { destroy: () => Promise<void> } | null = null;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const pdfParse = (await import('pdf-parse')).default as unknown as (
-          dataBuffer: ArrayBuffer | Buffer,
-        ) => Promise<{ text: string }>;
+        const { PDFParse } = await import('pdf-parse');
         const arrayBuffer = await file.arrayBuffer();
-        const parsed = await pdfParse(Buffer.from(arrayBuffer));
-        const result = extractShadowFromText(parsed.text || '');
+        const parserInstance = new PDFParse({ data: Buffer.from(arrayBuffer) });
+        parser = parserInstance;
+        const parsed = await parserInstance.getText();
+        const result = extractShadowFromText(parsed?.text ?? '');
         shadowItems = result.items;
         shadowSummary = result.summary;
         warnings = result.warnings;
@@ -93,6 +93,12 @@ export async function POST(req: Request) {
           },
           { status: 400 },
         );
+      } finally {
+        try {
+          await parser?.destroy();
+        } catch (destroyError) {
+          console.warn('[api/billing/shadow-import] failed to destroy pdf parser', destroyError);
+        }
       }
     } else {
       return NextResponse.json(

@@ -185,17 +185,16 @@ export function parseShadowCsvText(csvText: string): ShadowCsvParseResult {
       .reduce((sum, item) => sum + (Number(item.impliedValue) || 0), 0) || undefined;
 
   const summary: PortalShadowSummary | undefined =
-    totalImpliedValue || complimentaryValue || retainerCurrentCents || retainerNormalCents
+    totalImpliedValue ||
+    complimentaryValue ||
+    retainerCurrentCents ||
+    retainerNormalCents ||
+    (retainerIncludes?.length ?? 0) > 0
       ? {
           totalImpliedValue,
           complimentaryValue,
-          note: undefined,
-          // extra fields are allowed at runtime; TS type in lib will include them
-          // @ts-expect-error extra metadata fields (extended in lib types)
           retainerCurrentCents,
-          // @ts-expect-error as above
           retainerNormalCents,
-          // @ts-expect-error as above
           retainerIncludes,
         }
       : undefined;
@@ -282,16 +281,16 @@ export function extractShadowFromText(text: string): {
     items.reduce((sum, item) => sum + (Number(item.impliedValue) || 0), 0) || undefined;
 
   const summary: PortalShadowSummary | undefined =
-    totalImpliedValue || retainerCurrentCents || retainerNormalCents
-      ? ({
+    totalImpliedValue ||
+    retainerCurrentCents ||
+    retainerNormalCents ||
+    (retainerIncludes?.length ?? 0) > 0
+      ? {
           totalImpliedValue,
-          // @ts-expect-error extended fields at runtime
           retainerCurrentCents,
-          // @ts-expect-error extended fields at runtime
           retainerNormalCents,
-          // @ts-expect-error extended fields at runtime
           retainerIncludes,
-        } as PortalShadowSummary)
+        }
       : undefined;
 
   if (!items.length) {
