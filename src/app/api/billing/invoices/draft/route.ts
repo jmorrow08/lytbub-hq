@@ -202,6 +202,17 @@ export async function POST(req: Request) {
           .eq('id', clientRecord.id)
           .eq('created_by', user.id);
       }
+      // Keep the project record in sync for legacy compatibility
+      if (project.stripe_customer_id !== stripeCustomerId) {
+        await supabase
+          .from('projects')
+          .update({
+            stripe_customer_id: stripeCustomerId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', project.id)
+          .eq('created_by', user.id);
+      }
     } catch (syncError) {
       console.error('[api/billing/invoices/draft] unable to ensure Stripe customer', syncError);
       return NextResponse.json(
@@ -609,7 +620,32 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    console.error('[api/billing/invoices/draft] unexpected error', error);
-    return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
+    const err = error as unknown;
+    // Surface a more actionable message to the UI to aid diagnosis
+    // (e.g., Stripe "resource_missing", invalid subscription, etc.)
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === 'string'
+        ? err
+        : (() => {
+            try {
+              return JSON.stringify(err);
+            } catch {
+              return 'Unexpected server error.';
+            }
+          })();
+    // Prefer a specific status code if present on known error types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const status =
+      (err as any)?.statusCode ||
+      (err as any)?.status ||
+      // Stripe errors expose `statusCode`; Supabase errors may expose `code` but we keep 500
+      500;
+    console.error('[api/billing/invoices/draft] unexpected error', err);
+    return NextResponse.json(
+      { error: message },
+      { status: Number.isInteger(status) ? status : 500 },
+    );
   }
 }
