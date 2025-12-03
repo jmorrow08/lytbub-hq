@@ -73,13 +73,18 @@ export async function POST(req: Request) {
       warnings = result.warnings;
     } else if (isPdf) {
       // Best-effort PDF text extraction using dynamic import if available
-      let parser: { destroy: () => Promise<void> } | null = null;
       try {
-        const { PDFParse } = await import('pdf-parse');
+        type PdfParseFn = (dataBuffer: ArrayBuffer | Buffer) => Promise<{ text: string }>;
+        const pdfModule = (await import('pdf-parse')) as unknown as
+          | PdfParseFn
+          | { default?: PdfParseFn };
+        const resolvedModule = typeof pdfModule === 'function' ? pdfModule : pdfModule.default;
+        if (typeof resolvedModule !== 'function') {
+          throw new Error('pdf-parse default export missing');
+        }
+        const pdfParse = resolvedModule as PdfParseFn;
         const arrayBuffer = await file.arrayBuffer();
-        const parserInstance = new PDFParse({ data: Buffer.from(arrayBuffer) });
-        parser = parserInstance;
-        const parsed = await parserInstance.getText();
+        const parsed = await pdfParse(Buffer.from(arrayBuffer));
         const result = extractShadowFromText(parsed?.text ?? '');
         shadowItems = result.items;
         shadowSummary = result.summary;
@@ -93,12 +98,6 @@ export async function POST(req: Request) {
           },
           { status: 400 },
         );
-      } finally {
-        try {
-          await parser?.destroy();
-        } catch (destroyError) {
-          console.warn('[api/billing/shadow-import] failed to destroy pdf parser', destroyError);
-        }
       }
     } else {
       return NextResponse.json(
