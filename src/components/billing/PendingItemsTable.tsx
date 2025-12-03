@@ -5,7 +5,11 @@ import type { PendingInvoiceItem, Project } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { createPendingInvoiceItems, updatePendingInvoiceItem } from '@/lib/api';
+import {
+  createPendingInvoiceItems,
+  updatePendingInvoiceItem,
+  deletePendingInvoiceItem,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 type PendingItemsTableProps = {
@@ -43,6 +47,7 @@ export function PendingItemsTable({
   const [editingRows, setEditingRows] = useState<Record<string, EditableRow>>({});
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [voidingRowId, setVoidingRowId] = useState<string | null>(null);
+  const [deletingRowId, setDeletingRowId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -145,6 +150,29 @@ export function PendingItemsTable({
       setError(err instanceof Error ? err.message : 'Unable to void pending item.');
     } finally {
       setVoidingRowId(null);
+    }
+  };
+
+  const handleDeleteItem = async (itemId: string) => {
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        'Delete this pending item and any associated usage upload? This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
+    setDeletingRowId(itemId);
+    try {
+      await deletePendingInvoiceItem(itemId);
+      await onRefresh();
+      setSelectedIds((prev) => {
+        const next = prev.filter((id) => id !== itemId);
+        onSelectionChange?.(next);
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to delete pending item.');
+    } finally {
+      setDeletingRowId(null);
     }
   };
 
@@ -408,11 +436,19 @@ export function PendingItemsTable({
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="text-red-500 hover:text-red-500"
                               onClick={() => handleVoidItem(item.id)}
                               disabled={voidingRowId === item.id}
                             >
                               {voidingRowId === item.id ? 'Voiding…' : 'Void'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-500 hover:text-red-500"
+                              onClick={() => handleDeleteItem(item.id)}
+                              disabled={deletingRowId === item.id}
+                            >
+                              {deletingRowId === item.id ? 'Deleting…' : 'Delete'}
                             </Button>
                           </>
                         )}

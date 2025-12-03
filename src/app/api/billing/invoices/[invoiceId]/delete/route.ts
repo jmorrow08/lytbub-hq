@@ -50,11 +50,10 @@ export async function DELETE(req: Request, context: InvoiceRouteContext) {
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found.' }, { status: 404 });
     }
-    if (invoice.status !== 'draft') {
-      return NextResponse.json({ error: 'Only draft invoices can be deleted.' }, { status: 400 });
-    }
 
-    // If the invoice exists in Stripe, delete the draft there
+    // If the invoice exists in Stripe, attempt to delete the draft there.
+    // Stripe may refuse deletion for finalized/paid invoices; that is OK –
+    // we still proceed with deleting local billing history.
     const stripeSecret = process.env.STRIPE_SECRET_KEY;
     if (stripeSecret && invoice.stripe_invoice_id) {
       const stripe = new Stripe(stripeSecret, { apiVersion: STRIPE_API_VERSION });

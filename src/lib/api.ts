@@ -612,6 +612,12 @@ export const createBillingPeriod = async (payload: {
   return data.period;
 };
 
+export const deleteBillingPeriod = async (billingPeriodId: string): Promise<void> => {
+  await authedRequest(`/api/billing/billing-periods/${billingPeriodId}`, {
+    method: 'DELETE',
+  });
+};
+
 export const getUsageEvents = async (billingPeriodId: string): Promise<UsageEvent[]> => {
   const data = await authedRequest<{ events: UsageEvent[] }>(
     `/api/billing/usage-events?billingPeriodId=${encodeURIComponent(billingPeriodId)}`,
@@ -662,6 +668,12 @@ export const updatePendingInvoiceItem = async (
     },
   );
   return data.item;
+};
+
+export const deletePendingInvoiceItem = async (itemId: string): Promise<void> => {
+  await authedRequest(`/api/billing/pending-items/${itemId}`, {
+    method: 'DELETE',
+  });
 };
 
 export const importUsageCsv = async (params: {
@@ -777,6 +789,8 @@ export const deleteDraftInvoice = async (invoiceId: string): Promise<void> => {
     method: 'DELETE',
   });
 };
+
+export const deleteInvoice = deleteDraftInvoice;
 
 export const updateInvoicePortal = async (
   invoiceId: string,

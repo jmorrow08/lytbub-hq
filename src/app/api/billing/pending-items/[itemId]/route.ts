@@ -171,3 +171,73 @@ export async function PATCH(req: Request, context: RouteContext) {
     return NextResponse.json({ error: (error as Error).message }, { status });
   }
 }
+
+export async function DELETE(req: Request, context: RouteContext) {
+  try {
+    const { supabaseUrl, supabaseAnonKey } = ensureSupabase();
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
+      return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
+    }
+
+    const { itemId } = await context.params;
+    const { supabase, user } = await resolveUser(supabaseUrl, supabaseAnonKey, authHeader);
+
+    const { data: item, error: fetchError } = await supabase
+      .from('pending_invoice_items')
+      .select('id, source_type, source_ref_id, metadata')
+      .eq('id', itemId)
+      .eq('created_by', user.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('[api/billing/pending-items/:id] lookup failed', fetchError);
+      return NextResponse.json({ error: 'Unable to load pending item.' }, { status: 500 });
+    }
+
+    if (!item) {
+      return NextResponse.json({ error: 'Pending item not found.' }, { status: 404 });
+    }
+
+    if (item.source_type === 'usage') {
+      const metadata = (item.metadata || {}) as { usage_event_id?: string | null };
+      const usageEventId = item.source_ref_id || metadata.usage_event_id || null;
+      if (usageEventId) {
+        const { error: usageDeleteError } = await supabase
+          .from('usage_events')
+          .delete()
+          .eq('id', usageEventId)
+          .eq('created_by', user.id);
+        if (usageDeleteError) {
+          console.error(
+            '[api/billing/pending-items/:id] usage event delete failed',
+            usageDeleteError,
+          );
+          return NextResponse.json(
+            { error: 'Unable to delete associated usage event.' },
+            { status: 500 },
+          );
+        }
+      }
+    }
+
+    const { error: deleteError } = await supabase
+      .from('pending_invoice_items')
+      .delete()
+      .eq('id', itemId)
+      .eq('created_by', user.id);
+
+    if (deleteError) {
+      console.error('[api/billing/pending-items/:id] delete failed', deleteError);
+      return NextResponse.json({ error: 'Unable to delete pending item.' }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const status = (error as { status?: number }).status ?? 500;
+    if (status >= 500) {
+      console.error('[api/billing/pending-items/:id] unexpected delete error', error);
+    }
+    return NextResponse.json({ error: (error as Error).message }, { status });
+  }
+}

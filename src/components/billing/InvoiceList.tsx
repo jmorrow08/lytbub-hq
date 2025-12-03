@@ -15,6 +15,8 @@ type InvoiceListProps = {
   markingId?: string | null;
   projectLookup?: Record<string, { clientName: string; projectName: string }>;
   onPortalSelect?: (invoice: Invoice) => void;
+   onDelete?: (invoiceId: string) => Promise<void>;
+   deletingId?: string | null;
 };
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -47,6 +49,8 @@ export function InvoiceList({
   markingId,
   projectLookup,
   onPortalSelect,
+  onDelete,
+  deletingId,
 }: InvoiceListProps) {
   const sortedInvoices = useMemo(
     () => [...invoices].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
@@ -69,6 +73,11 @@ export function InvoiceList({
 
   const handleMarkOffline = async (invoiceId: string) => {
     await onMarkOffline(invoiceId);
+  };
+
+  const handleDelete = async (invoiceId: string) => {
+    if (!onDelete) return;
+    await onDelete(invoiceId);
   };
 
   const handleCopyLink = async (invoice: Invoice) => {
@@ -210,28 +219,17 @@ export function InvoiceList({
                               >
                                 {markingId === invoice.id ? 'Marking…' : 'Mark Paid (Offline)'}
                               </Button>
-                              {invoice.status === 'draft' && (
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={async () => {
-                                    if (typeof window !== 'undefined') {
-                                      const yes = window.confirm(
-                                        'Delete this draft invoice? This cannot be undone.',
-                                      );
-                                      if (!yes) return;
-                                    }
-                                    try {
-                                      await deleteDraftInvoice(invoice.id);
-                                    } catch {
-                                      // ignoring here; parent may refresh list elsewhere
-                                    }
-                                  }}
-                                >
-                                  Delete
-                                </Button>
-                              )}
                             </>
+                          )}
+                          {onDelete && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDelete(invoice.id)}
+                              disabled={deletingId === invoice.id}
+                            >
+                              {deletingId === invoice.id ? 'Deleting…' : 'Delete'}
+                            </Button>
                           )}
                         </div>
                       </td>

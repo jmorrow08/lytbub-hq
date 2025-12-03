@@ -15,6 +15,7 @@ import {
   getBillingPeriods,
   getInvoices,
   createBillingPeriod,
+  deleteBillingPeriod,
   importUsageCsv,
   createDraftInvoice,
   finalizeInvoice,
@@ -23,6 +24,7 @@ import {
   getPendingInvoiceItems,
   createQuickInvoice,
   updateInvoicePortal,
+  deleteDraftInvoice,
   // Revenue
   getRevenue,
   createRevenue,
@@ -112,6 +114,7 @@ export default function FinancePage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -702,6 +705,25 @@ export default function FinancePage() {
     }
   };
 
+  const handleDeleteBillingPeriod = async (billingPeriodId: string) => {
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        'Delete this billing period and any associated usage uploads? This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      await deleteBillingPeriod(billingPeriodId);
+      await loadBillingPeriodsOnly();
+      triggerToast('success', 'Billing period deleted.');
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : 'Unable to delete billing period.';
+      triggerToast('error', message);
+    }
+  };
+
   const handleSubscriptionUpdate = async (
     projectId: string,
     updates: {
@@ -837,6 +859,28 @@ export default function FinancePage() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 12);
   }, [payments, invoices, projectLookup]);
+
+  const handleDeleteInvoice = async (invoiceId: string) => {
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        'Delete this invoice and its line items? This will also remove client access to this statement. This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
+
+    setDeletingInvoiceId(invoiceId);
+    try {
+      await deleteDraftInvoice(invoiceId);
+      setInvoices((prev) => prev.filter((invoice) => invoice.id !== invoiceId));
+      triggerToast('success', 'Invoice deleted.');
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : 'Failed to delete invoice.';
+      triggerToast('error', message);
+    } finally {
+      setDeletingInvoiceId(null);
+    }
+  };
 
   const portalBaseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ||
@@ -1403,6 +1447,22 @@ export default function FinancePage() {
                                     </Link>
                                   </Button>
                                 )}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeleteInvoice(entry.id)}
+                                  disabled={deletingInvoiceId === entry.id}
+                                >
+                                  {deletingInvoiceId === entry.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <Trash2 className="h-4 w-4" />
+                                      <span>Delete</span>
+                                    </>
+                                  )}
+                                </Button>
                               </>
                             )}
                           </div>
@@ -1679,6 +1739,51 @@ export default function FinancePage() {
                     )}
                   </Card>
 
+                  {filteredPeriods.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Existing billing periods</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div className="overflow-x-auto rounded-md border">
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                              <tr>
+                                <th className="px-3 py-2 text-left">Period</th>
+                                <th className="px-3 py-2 text-left">Status</th>
+                                <th className="px-3 py-2 text-left">Notes</th>
+                                <th className="px-3 py-2 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredPeriods.map((period) => (
+                                <tr key={period.id} className="border-t border-border/60">
+                                  <td className="px-3 py-2">
+                                    {period.period_start} → {period.period_end}
+                                  </td>
+                                  <td className="px-3 py-2 capitalize">{period.status}</td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {period.notes || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-red-500 hover:text-red-500"
+                                      onClick={() => handleDeleteBillingPeriod(period.id)}
+                                    >
+                                      Delete
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   <UsageImportForm
                     clients={scopedProjects}
                     billingPeriods={billingPeriods}
@@ -1707,6 +1812,8 @@ export default function FinancePage() {
                 finalizingId={finalizingId}
                 markingId={markingId}
                 projectLookup={projectLookup}
+                onDelete={handleDeleteInvoice}
+                deletingId={deletingInvoiceId}
                 onPortalSelect={(invoice) => {
                   setPortalInvoiceId(invoice.id);
                   if (typeof window !== 'undefined') {
