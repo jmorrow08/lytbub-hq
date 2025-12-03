@@ -641,9 +641,10 @@ export default function FinancePage() {
   };
 
   const handlePortalCopyLink = async () => {
-    if (!portalShareLink) return;
+    const link = portalOpenUrl || portalShareLink;
+    if (!link) return;
     try {
-      await navigator.clipboard.writeText(portalShareLink);
+      await navigator.clipboard.writeText(link);
       setPortalStatus('Share link copied.');
     } catch {
       setPortalStatus('Unable to copy link. Please copy manually.');
@@ -1756,7 +1757,7 @@ export default function FinancePage() {
                         <div className="flex items-center gap-2">
                           <Input
                             readOnly
-                            value={portalShareLink || 'Generate a link first'}
+                            value={portalOpenUrl || portalShareLink || 'Generate a link first'}
                             onFocus={(e) => e.target.select()}
                           />
                           <Button

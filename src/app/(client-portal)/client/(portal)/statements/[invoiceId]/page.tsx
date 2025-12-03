@@ -121,9 +121,12 @@ export default function ClientStatementDetailPage() {
   const shareUrl = useMemo(() => {
     if (!invoice?.publicShareId) return null;
     if (typeof window === 'undefined') return null;
-    const origin = window.location.origin;
-    return `${origin}/invoice/${invoice.publicShareId}`;
-  }, [invoice?.publicShareId]);
+    const origin = window.location.origin.replace(/\/$/, '');
+    const params = new URLSearchParams();
+    params.set('share', invoice.publicShareId);
+    params.set('redirect', `/client/statements/${invoice.id}`);
+    return `${origin}/client/signup?${params.toString()}`;
+  }, [invoice?.publicShareId, invoice?.id]);
 
   const handleCopyShareLink = async () => {
     if (!shareUrl) return;
@@ -471,5 +474,3 @@ export default function ClientStatementDetailPage() {
     </div>
   );
 }
-
-
