@@ -173,7 +173,7 @@ export async function POST(req: Request) {
       await supabase
         .from('projects')
         .update({
-          stripe_customer_id,
+          stripe_customer_id: stripeCustomerId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', project.id)
