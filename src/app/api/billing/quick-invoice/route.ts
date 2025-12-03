@@ -98,13 +98,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
     }
 
-    if (!project.stripe_customer_id) {
-      return NextResponse.json(
-        { error: 'Project is missing a Stripe customer. Configure billing first.' },
-        { status: 400 },
-      );
-    }
-
     const projectRetainerCents = Number(project.base_retainer_cents) || 0;
     const canInvoiceRetainerOnly = includeRetainer && projectRetainerCents > 0;
     if (pendingItemIds.length === 0 && !canInvoiceRetainerOnly) {
@@ -137,6 +130,55 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Client not found.' }, { status: 400 });
       }
       clientId = client.id;
+    }
+
+    const { data: clientRecord, error: clientError } = await supabase
+      .from('clients')
+      .select('id, name, company_name, email, phone, stripe_customer_id')
+      .eq('id', clientId)
+      .eq('created_by', user.id)
+      .maybeSingle();
+
+    if (clientError) {
+      console.error('[api/billing/quick-invoice] client lookup failed', clientError);
+      return NextResponse.json({ error: 'Unable to load client.' }, { status: 500 });
+    }
+    if (!clientRecord) {
+      return NextResponse.json({ error: 'Client not found.' }, { status: 404 });
+    }
+
+    let stripeCustomerId = clientRecord.stripe_customer_id || project.stripe_customer_id || null;
+
+    if (!stripeCustomerId) {
+      return NextResponse.json(
+        { error: 'Client is missing a Stripe customer. Configure billing first.' },
+        { status: 400 },
+      );
+    }
+
+    if (!clientRecord.stripe_customer_id && project.stripe_customer_id) {
+      await supabase
+        .from('clients')
+        .update({
+          stripe_customer_id: project.stripe_customer_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', clientRecord.id)
+        .eq('created_by', user.id);
+    }
+
+    if (
+      !project.stripe_customer_id ||
+      project.stripe_customer_id !== clientRecord.stripe_customer_id
+    ) {
+      await supabase
+        .from('projects')
+        .update({
+          stripe_customer_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', project.id)
+        .eq('created_by', user.id);
     }
 
     let pendingItems: PendingInvoiceItem[] = [];
@@ -258,7 +300,7 @@ export async function POST(req: Request) {
     })`;
 
     const stripeInvoice = await createDraftInvoice({
-      customerId: project.stripe_customer_id,
+      customerId: stripeCustomerId,
       subscriptionId: includeRetainer ? project.stripe_subscription_id ?? undefined : undefined,
       collectionMethod,
       dueDate: dueDateUnix,
@@ -282,7 +324,7 @@ export async function POST(req: Request) {
         metadata.pending_item_id = String(line.metadata.pending_item_id);
       }
       await addInvoiceLineItem({
-        customerId: project.stripe_customer_id,
+        customerId: stripeCustomerId,
         invoiceId: stripeInvoice.id,
         description: line.description,
         amountCents: line.unitPriceCents,
@@ -303,7 +345,7 @@ export async function POST(req: Request) {
         project_id: project.id,
         client_id: clientId,
         stripe_invoice_id: stripeInvoice.id,
-        stripe_customer_id: project.stripe_customer_id,
+        stripe_customer_id: stripeCustomerId,
         stripe_subscription_id: includeRetainer ? project.stripe_subscription_id : null,
         subtotal_cents: calculated.subtotalCents,
         total_cents: calculated.totalCents,

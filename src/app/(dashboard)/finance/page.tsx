@@ -136,6 +136,7 @@ export default function FinancePage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [draftInvoice, setDraftInvoice] = useState<Invoice | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState('');
   const [loadingBilling, setLoadingBilling] = useState(true);
   const [usageUploading, setUsageUploading] = useState(false);
   const [invoiceGenerating, setInvoiceGenerating] = useState(false);
@@ -172,6 +173,8 @@ export default function FinancePage() {
   const [portalExpiresAt, setPortalExpiresAt] = useState<string>('');
   const [portalStatus, setPortalStatus] = useState<string | null>(null);
   const [portalSaving, setPortalSaving] = useState(false);
+  const [portalExpanded, setPortalExpanded] = useState(false);
+  const [showPeriodForm, setShowPeriodForm] = useState(false);
 
   // Tab routing sync
   useEffect(() => {
@@ -216,6 +219,11 @@ export default function FinancePage() {
       setBillingClients(clientList);
       setBillingPeriods(periods);
       setInvoices(invoiceList);
+      setSelectedClientId((prev) => {
+        if (prev) return prev;
+        const firstClientId = clientList.find((project) => project.client_id)?.client_id;
+        return firstClientId ?? '';
+      });
       setSelectedProjectId((prev) => prev || (clientList[0]?.id ?? ''));
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unable to load billing data.';
@@ -642,6 +650,19 @@ export default function FinancePage() {
     }
   };
 
+  const handleClientScopeChange = (clientId: string) => {
+    setSelectedClientId(clientId);
+  };
+
+  const handleProjectScopeChange = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    if (!projectId) return;
+    const owningProject = billingClients.find((project) => project.id === projectId);
+    if (owningProject?.client_id) {
+      setSelectedClientId(owningProject.client_id);
+    }
+  };
+
   const handleCreatePeriod = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!periodForm.projectId || !periodForm.periodStart || !periodForm.periodEnd) {
@@ -709,15 +730,63 @@ export default function FinancePage() {
     }
   };
 
+  const clientOptions = useMemo(() => {
+    const deduped = new Map<string, string>();
+    billingClients.forEach((project) => {
+      if (!project.client_id) return;
+      const label =
+        project.client?.name ||
+        project.client?.company_name ||
+        project.client_id ||
+        project.name ||
+        'Client';
+      deduped.set(project.client_id, label);
+    });
+    return Array.from(deduped.entries()).map(([id, label]) => ({ id, label }));
+  }, [billingClients]);
+
+  const projectOptions = useMemo(() => {
+    if (!selectedClientId) return billingClients;
+    return billingClients.filter((project) => project.client_id === selectedClientId);
+  }, [billingClients, selectedClientId]);
+
+  const scopedProjects = projectOptions.length > 0 ? projectOptions : billingClients;
+
+  useEffect(() => {
+    if (projectOptions.length === 0) {
+      const fallback = billingClients[0]?.id;
+      if (!selectedProjectId && fallback) {
+        setSelectedProjectId(fallback);
+      }
+      return;
+    }
+    if (!selectedProjectId || !projectOptions.some((project) => project.id === selectedProjectId)) {
+      setSelectedProjectId(projectOptions[0].id);
+    }
+  }, [billingClients, projectOptions, selectedProjectId]);
+
   const filteredPeriods = billingPeriods.filter(
     (period) => !selectedProjectId || period.project_id === selectedProjectId,
   );
 
-  const activeProject = billingClients.find((c) => c.id === selectedProjectId) || null;
-  const clientLookup = useMemo(() => {
-    const map: Record<string, string> = {};
-    billingClients.forEach((client) => {
-      map[client.id] = client.name;
+  const activeProject =
+    billingClients.find((c) => c.id === selectedProjectId) ||
+    projectOptions[0] ||
+    billingClients[0] ||
+    null;
+
+  const projectLookup = useMemo(() => {
+    const map: Record<string, { clientName: string; projectName: string }> = {};
+    billingClients.forEach((project) => {
+      const clientName =
+        project.client?.name ||
+        project.client?.company_name ||
+        project.client_id ||
+        'Client';
+      map[project.id] = {
+        clientName,
+        projectName: project.name || 'Project',
+      };
     });
     return map;
   }, [billingClients]);
@@ -746,12 +815,13 @@ export default function FinancePage() {
       const metadata = (invoice.metadata ?? {}) as Record<string, unknown>;
       const paidAtMeta = typeof metadata.paid_at === 'string' ? metadata.paid_at : null;
       const createdAt = paidAtMeta || invoice.updated_at || invoice.created_at;
+      const projectMeta = projectLookup[invoice.project_id];
       entries.push({
         id: invoice.id,
         kind: 'invoice',
         createdAt,
-        clientName: invoice.client?.name || '—',
-        projectName: clientLookup[invoice.project_id] ?? invoice.project_id,
+        clientName: invoice.client?.name || projectMeta?.clientName || '—',
+        projectName: projectMeta?.projectName || invoice.project_id,
         description: `Invoice ${invoice.invoice_number}`,
         amountCents: invoice.total_cents,
         status: invoice.status,
@@ -768,7 +838,7 @@ export default function FinancePage() {
     return entries
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 12);
-  }, [payments, invoices, clientLookup]);
+  }, [payments, invoices, projectLookup]);
 
   const portalBaseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ||
@@ -798,7 +868,7 @@ export default function FinancePage() {
         const clientName =
           project.client?.name ||
           project.client?.company_name ||
-          (project.client_id ? clientLookup[project.client_id] : 'Client');
+          'Client';
         const projectName = project.name || 'Project';
         const message = `Usage update for ${projectName}: ${projectPending.length} pending item${
           projectPending.length === 1 ? '' : 's'
@@ -817,7 +887,7 @@ export default function FinancePage() {
       })
       .filter((entry): entry is UsageNotificationEntry => Boolean(entry))
       .sort((a, b) => new Date(b.lastPendingAt).getTime() - new Date(a.lastPendingAt).getTime());
-  }, [billingClients, pendingItems, clientLookup]);
+  }, [billingClients, pendingItems]);
 
   const handleCopyUsageSummary = async (entry: UsageNotificationEntry) => {
     try {
@@ -1376,154 +1446,229 @@ export default function FinancePage() {
             </div>
           ) : (
             <div className="space-y-6">
-              <SubscriptionManager
-                clients={billingClients}
-                onUpdate={handleSubscriptionUpdate}
-                updatingId={updatingSubscriptionId}
-                onSelectClient={setSelectedProjectId}
-                selectedProjectId={selectedProjectId}
-              />
-
-              <PendingItemsTable
-                items={pendingItems}
-                projects={billingClients}
-                loading={loadingPendingItems}
-                onRefresh={refreshPendingItems}
-                onSelectionChange={setSelectedPendingItemIds}
-              />
-              {selectedPendingItemIds.length > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  {selectedPendingItemIds.length}{' '}
-                  {selectedPendingItemIds.length === 1 ? 'item is' : 'items are'} queued for a quick
-                  invoice.
-                </p>
-              )}
-
               <Card>
                 <CardHeader>
-                  <CardTitle>Create Billing Period</CardTitle>
+                  <CardTitle>Billing scope</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Focus the workspace by selecting a client and project.
+                  </p>
                 </CardHeader>
-                <CardContent>
-                  <form className="grid gap-4 md:grid-cols-2" onSubmit={handleCreatePeriod}>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" htmlFor="period-client">
-                        Client
-                      </label>
-                      <select
-                        id="period-client"
-                        value={periodForm.projectId}
-                        onChange={(event) =>
-                          setPeriodForm((prev) => ({ ...prev, projectId: event.target.value }))
-                        }
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        required
-                      >
-                        <option value="">Select client</option>
-                        {billingClients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.name}
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Client</label>
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={selectedClientId}
+                      onChange={(event) => handleClientScopeChange(event.target.value)}
+                    >
+                      <option value="">All clients</option>
+                      {clientOptions.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Project</label>
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={selectedProjectId}
+                      onChange={(event) => handleProjectScopeChange(event.target.value)}
+                      disabled={scopedProjects.length === 0}
+                    >
+                      {scopedProjects.length === 0 ? (
+                        <option value="">No projects linked</option>
+                      ) : (
+                        scopedProjects.map((project) => (
+                          <option key={project.id} value={project.id}>
+                            {project.name}
                           </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" htmlFor="period-notes">
-                        Notes
-                      </label>
-                      <Input
-                        id="period-notes"
-                        placeholder="Optional notes"
-                        value={periodForm.notes}
-                        onChange={(event) =>
-                          setPeriodForm((prev) => ({ ...prev, notes: event.target.value }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" htmlFor="period-start">
-                        Period Start
-                      </label>
-                      <Input
-                        id="period-start"
-                        type="date"
-                        value={periodForm.periodStart}
-                        onChange={(event) =>
-                          setPeriodForm((prev) => ({ ...prev, periodStart: event.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" htmlFor="period-end">
-                        Period End
-                      </label>
-                      <Input
-                        id="period-end"
-                        type="date"
-                        value={periodForm.periodEnd}
-                        onChange={(event) =>
-                          setPeriodForm((prev) => ({ ...prev, periodEnd: event.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                    <div className="md:col-span-2 flex justify-end">
-                      <Button type="submit" disabled={creatingPeriod}>
-                        {creatingPeriod ? 'Creating…' : 'Create Billing Period'}
-                      </Button>
-                    </div>
-                  </form>
+                        ))
+                      )}
+                    </select>
+                  </div>
                 </CardContent>
+                )}
               </Card>
 
-              <div className="grid gap-6 lg:grid-cols-2">
-                <UsageImportForm
-                  clients={billingClients}
-                  billingPeriods={billingPeriods}
-                  selectedProjectId={selectedProjectId}
-                  onSelectProject={setSelectedProjectId}
-                  onImport={handleImportUsage}
-                  submitting={usageUploading}
-                />
+              <div className="grid gap-6 xl:grid-cols-[1.7fr,1fr]">
+                <div className="space-y-6">
+                  <SubscriptionManager
+                    clients={scopedProjects}
+                    onUpdate={handleSubscriptionUpdate}
+                    updatingId={updatingSubscriptionId}
+                    onSelectClient={scopedProjects.length > 1 ? handleProjectScopeChange : undefined}
+                    selectedProjectId={selectedProjectId}
+                  />
 
-                <InvoiceBuilder
-                  billingPeriods={filteredPeriods}
-                  projects={billingClients}
-                  pendingItems={pendingItems}
-                  onRefreshPendingItems={refreshPendingItems}
-                  onGenerate={handleGenerateInvoice}
-                  generating={invoiceGenerating}
-                  draftInvoice={draftInvoice}
-                />
+                  <PendingItemsTable
+                    items={pendingItems}
+                    projects={scopedProjects}
+                    loading={loadingPendingItems}
+                    onRefresh={refreshPendingItems}
+                    onSelectionChange={setSelectedPendingItemIds}
+                  />
+                  {selectedPendingItemIds.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedPendingItemIds.length}{' '}
+                      {selectedPendingItemIds.length === 1 ? 'item is' : 'items are'} queued for a
+                      quick invoice.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-6">
+                  {activeProject && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Client snapshot</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3 text-sm">
+                        <div>
+                          <p className="text-muted-foreground">Account</p>
+                          <p className="text-lg font-semibold">
+                            {activeProject.client?.name ||
+                              activeProject.client?.company_name ||
+                              'Client'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{activeProject.name}</p>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <div>
+                            <p className="text-muted-foreground text-xs uppercase">Base Retainer</p>
+                            <p className="text-lg font-semibold">
+                              {currencyFormatter.format(
+                                (activeProject.base_retainer_cents ?? 0) / 100,
+                              )}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-xs uppercase">
+                              Payment Method
+                            </p>
+                            <p className="text-lg font-semibold capitalize">
+                              {activeProject.payment_method_type || 'card'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-xs uppercase">Auto-Pay</p>
+                            <p className="text-lg font-semibold">
+                              {activeProject.auto_pay_enabled ? 'Enabled' : 'Manual'}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <Card>
+                    <CardHeader className="flex items-center justify-between gap-4">
+                      <div>
+                        <CardTitle>Create billing period</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Track the time frame that invoices roll up into.
+                        </p>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => setShowPeriodForm((prev) => !prev)}>
+                        {showPeriodForm ? 'Hide' : 'New period'}
+                      </Button>
+                    </CardHeader>
+                    {showPeriodForm && (
+                      <CardContent>
+                        <form className="grid gap-4 md:grid-cols-2" onSubmit={handleCreatePeriod}>
+                          <div>
+                            <label className="block text-sm font-medium mb-1" htmlFor="period-client">
+                              Project
+                            </label>
+                            <select
+                              id="period-client"
+                              value={periodForm.projectId}
+                              onChange={(event) =>
+                                setPeriodForm((prev) => ({ ...prev, projectId: event.target.value }))
+                              }
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              required
+                            >
+                              <option value="">Select project</option>
+                              {scopedProjects.map((project) => (
+                                <option key={project.id} value={project.id}>
+                                  {project.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1" htmlFor="period-notes">
+                              Notes
+                            </label>
+                            <Input
+                              id="period-notes"
+                              placeholder="Optional notes"
+                              value={periodForm.notes}
+                              onChange={(event) =>
+                                setPeriodForm((prev) => ({ ...prev, notes: event.target.value }))
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1" htmlFor="period-start">
+                              Period Start
+                            </label>
+                            <Input
+                              id="period-start"
+                              type="date"
+                              value={periodForm.periodStart}
+                              onChange={(event) =>
+                                setPeriodForm((prev) => ({ ...prev, periodStart: event.target.value }))
+                              }
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1" htmlFor="period-end">
+                              Period End
+                            </label>
+                            <Input
+                              id="period-end"
+                              type="date"
+                              value={periodForm.periodEnd}
+                              onChange={(event) =>
+                                setPeriodForm((prev) => ({ ...prev, periodEnd: event.target.value }))
+                              }
+                              required
+                            />
+                          </div>
+                          <div className="md:col-span-2 flex justify-end">
+                            <Button type="submit" disabled={creatingPeriod}>
+                              {creatingPeriod ? 'Creating…' : 'Create billing period'}
+                            </Button>
+                          </div>
+                        </form>
+                      </CardContent>
+                    )}
+                  </Card>
+
+                  <UsageImportForm
+                    clients={scopedProjects}
+                    billingPeriods={billingPeriods}
+                    selectedProjectId={selectedProjectId}
+                    onSelectProject={handleProjectScopeChange}
+                    onImport={handleImportUsage}
+                    submitting={usageUploading}
+                  />
+
+                  <InvoiceBuilder
+                    billingPeriods={filteredPeriods}
+                    projects={scopedProjects}
+                    pendingItems={pendingItems}
+                    onRefreshPendingItems={refreshPendingItems}
+                    onGenerate={handleGenerateInvoice}
+                    generating={invoiceGenerating}
+                    draftInvoice={draftInvoice}
+                  />
+                </div>
               </div>
-
-              {activeProject && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Client Snapshot</CardTitle>
-                  </CardHeader>
-                  <CardContent className="grid gap-4 md:grid-cols-3 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Base Retainer</p>
-                      <p className="text-xl font-semibold">
-                        {currencyFormatter.format((activeProject.base_retainer_cents ?? 0) / 100)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Payment Method</p>
-                      <p className="text-xl font-semibold capitalize">
-                        {activeProject.payment_method_type || 'card'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Auto-Pay</p>
-                      <p className="text-xl font-semibold">
-                        {activeProject.auto_pay_enabled ? 'Enabled' : 'Manual'}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
 
               <InvoiceList
                 invoices={invoices}
@@ -1531,11 +1676,9 @@ export default function FinancePage() {
                 onMarkOffline={handleMarkOffline}
                 finalizingId={finalizingId}
                 markingId={markingId}
-                clientLookup={clientLookup}
+                projectLookup={projectLookup}
                 onPortalSelect={(invoice) => {
                   setPortalInvoiceId(invoice.id);
-                  // Smoothly scroll the portal editor into view to make the action visible.
-                  // This addresses UX feedback that “nothing happens” when clicking Portal.
                   if (typeof window !== 'undefined') {
                     const el = document.getElementById('invoice-portal-editor');
                     if (el && 'scrollIntoView' in el) {
@@ -1546,14 +1689,20 @@ export default function FinancePage() {
               />
 
               <Card id="invoice-portal-editor">
-                <CardHeader>
-                  <CardTitle>Invoice Portal Link &amp; Payload</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Create a public share link and set the AI/usage/shadow metadata shown on the
-                    client-facing invoice microsite.
-                  </p>
+                <CardHeader className="flex items-start justify-between gap-4">
+                  <div>
+                    <CardTitle>Invoice portal link &amp; payload</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Create a public share link and set the metadata shown on the client-facing
+                      microsite.
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setPortalExpanded((prev) => !prev)}>
+                    {portalExpanded ? 'Hide' : 'Edit'}
+                  </Button>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                {portalExpanded && (
+                  <CardContent className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
                       <label className="block text-sm font-medium mb-1">Invoice</label>

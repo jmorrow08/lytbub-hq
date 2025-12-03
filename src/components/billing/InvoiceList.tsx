@@ -13,7 +13,7 @@ type InvoiceListProps = {
   onMarkOffline: (invoiceId: string) => Promise<void>;
   finalizingId?: string | null;
   markingId?: string | null;
-  clientLookup?: Record<string, string>;
+  projectLookup?: Record<string, { clientName: string; projectName: string }>;
   onPortalSelect?: (invoice: Invoice) => void;
 };
 
@@ -45,7 +45,7 @@ export function InvoiceList({
   onMarkOffline,
   finalizingId,
   markingId,
-  clientLookup,
+  projectLookup,
   onPortalSelect,
 }: InvoiceListProps) {
   const sortedInvoices = useMemo(
@@ -109,6 +109,7 @@ export function InvoiceList({
                 <tr>
                   <th className="py-2 text-left">Invoice</th>
                   <th className="py-2 text-left">Client</th>
+                  <th className="py-2 text-left">Project</th>
                   <th className="py-2 text-left">Due</th>
                   <th className="py-2 text-left">Total</th>
                   <th className="py-2 text-left">Status</th>
@@ -123,6 +124,10 @@ export function InvoiceList({
                     invoice.payment_brand,
                     invoice.payment_last4,
                   );
+                  const lookup = projectLookup?.[invoice.project_id];
+                  const clientName =
+                    lookup?.clientName ?? invoice.client?.name ?? invoice.client_id ?? '—';
+                  const projectName = lookup?.projectName ?? invoice.project_id;
 
                   return (
                     <tr key={invoice.id} className="border-b border-border/40">
@@ -132,9 +137,8 @@ export function InvoiceList({
                           {new Date(invoice.created_at).toLocaleString()}
                         </div>
                       </td>
-                      <td className="py-3">
-                        {clientLookup?.[invoice.project_id] ?? invoice.project_id}
-                      </td>
+                      <td className="py-3">{clientName}</td>
+                      <td className="py-3">{projectName}</td>
                       <td className="py-3">
                         {invoice.collection_method === 'send_invoice' && invoice.due_date
                           ? formatYmdAsLocaleDate(invoice.due_date)
@@ -180,7 +184,11 @@ export function InvoiceList({
                             </>
                           )}
                           {onPortalSelect && (
-                            <Button size="sm" variant="outline" onClick={() => onPortalSelect(invoice)}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => onPortalSelect(invoice)}
+                            >
                               Portal
                             </Button>
                           )}
