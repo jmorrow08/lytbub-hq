@@ -19,6 +19,26 @@ import {
   type PortalUsageAggregationInput,
 } from '@/lib/invoice-portal';
 
+const redactErrorTokens = (message: string): string => {
+  const patterns: RegExp[] = [
+    /\bsk_(?:live|test)_[A-Za-z0-9]+\b/gi,
+    /\b(?:cus|sub|acct|pi|pm|card|price|prod|cs)_[A-Za-z0-9]+\b/gi,
+  ];
+  return patterns.reduce((acc, pattern) => acc.replace(pattern, '[redacted]'), message);
+};
+
+const toClientSafeError = (message: string): string => {
+  if (!message) {
+    return process.env.NODE_ENV === 'production'
+      ? 'An unexpected error occurred. Please try again later.'
+      : 'Unexpected server error.';
+  }
+  const scrubbed = redactErrorTokens(message);
+  return process.env.NODE_ENV === 'production'
+    ? 'An unexpected error occurred. Please try again later.'
+    : scrubbed;
+};
+
 type DraftInvoicePayload = {
   billingPeriodId: string;
   includeProcessingFee?: boolean;
@@ -161,7 +181,9 @@ export async function POST(req: Request) {
           stripeCustomerId = customer.id;
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          const isMissing = /No such customer/i.test(msg) || /resource_missing/i.test(msg);
+          const isMissing =
+            /No such customer/i.test(msg) ||
+            (/resource_missing/i.test(msg) && /customer/i.test(msg));
           if (isMissing) {
             const created = await createOrUpdateCustomer({
               email: clientRecord.email ?? undefined,
@@ -642,9 +664,10 @@ export async function POST(req: Request) {
       (err as any)?.status ||
       // Stripe errors expose `statusCode`; Supabase errors may expose `code` but we keep 500
       500;
+    const responseMessage = toClientSafeError(message);
     console.error('[api/billing/invoices/draft] unexpected error', err);
     return NextResponse.json(
-      { error: message },
+      { error: responseMessage },
       { status: Number.isInteger(status) ? status : 500 },
     );
   }

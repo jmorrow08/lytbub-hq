@@ -132,7 +132,9 @@ export async function PATCH(req: Request) {
         });
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        const missing = /No such customer/i.test(message) || /resource_missing/i.test(message);
+        const missing =
+          /No such customer/i.test(message) ||
+          (/resource_missing/i.test(message) && /customer/i.test(message));
         if (missing) {
           try {
             const created = await createOrUpdateCustomer({
