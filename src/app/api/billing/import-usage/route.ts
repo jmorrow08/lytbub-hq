@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { parseUsageCsvText } from '@/lib/csv-parser';
 
@@ -109,6 +110,19 @@ export async function POST(req: Request) {
     let firstDate: Date | null = null;
     let lastDate: Date | null = null;
 
+    const importBatchId = randomUUID();
+    const detailUsageEvents: Array<{
+      project_id: string;
+      billing_period_id: string;
+      event_date: string;
+      metric_type: string;
+      quantity: number;
+      unit_price_cents: number;
+      description: string;
+      metadata: Record<string, unknown>;
+      created_by: string;
+    }> = [];
+
     rows.forEach((row, index) => {
       const parsedDate = row.date ? new Date(row.date) : null;
       if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
@@ -141,6 +155,28 @@ export async function POST(req: Request) {
       validRows += 1;
       if (!firstDate || parsedDate < firstDate) firstDate = parsedDate;
       if (!lastDate || parsedDate > lastDate) lastDate = parsedDate;
+
+      const metricType = row.metric_type?.trim() || 'usage';
+      const quantity = Number.isFinite(row.quantity) ? row.quantity : 1;
+      const eventDate = parsedDate.toISOString().slice(0, 10);
+      detailUsageEvents.push({
+        project_id: projectId,
+        billing_period_id: billingPeriodId,
+        event_date: eventDate,
+        metric_type: metricType,
+        quantity,
+        unit_price_cents: Math.max(0, Math.round(row.unit_price * 100)),
+        description: row.description || metricType,
+        metadata: {
+          import_batch_id: importBatchId,
+          csv_row_index: index + 2, // include header row offset
+          csv_client_name: row.client_name || null,
+          total_cost_cents: Math.round(costDollars * 100),
+          total_tokens: tokensValue,
+          source: 'usage_csv',
+        },
+        created_by: user.id,
+      });
     });
 
     const totalCostCents = Math.max(0, Math.round(totalCostDollars * 100));
@@ -149,6 +185,20 @@ export async function POST(req: Request) {
         { error: 'No valid rows to import.', details: parseErrors },
         { status: 400 },
       );
+    }
+
+    let detailEventIds: string[] = [];
+    if (detailUsageEvents.length > 0) {
+      const { data: detailRows, error: detailInsertError } = await supabase
+        .from('usage_events')
+        .insert(detailUsageEvents)
+        .select('id');
+
+      if (detailInsertError) {
+        console.error('[api/billing/import-usage] detail usage insert failed', detailInsertError);
+        return NextResponse.json({ error: 'Failed to import usage rows.' }, { status: 500 });
+      }
+      detailEventIds = (detailRows ?? []).map((row) => row.id);
     }
 
     const dateFormatter = (date: Date | null) =>
@@ -178,6 +228,9 @@ export async function POST(req: Request) {
         date_start: startDate,
         date_end: endDate,
         warnings: parseErrors,
+        aggregate: true,
+        import_batch_id: importBatchId,
+        detail_event_ids: detailEventIds,
       },
       created_by: user.id,
     };
@@ -189,6 +242,13 @@ export async function POST(req: Request) {
       .single();
     if (insertError || !usageEvent) {
       console.error('[api/billing/import-usage] insert failed', insertError);
+      if (detailEventIds.length > 0) {
+        await supabase
+          .from('usage_events')
+          .delete()
+          .eq('created_by', user.id)
+          .eq('metadata->>import_batch_id', importBatchId);
+      }
       return NextResponse.json({ error: 'Failed to import usage rows.' }, { status: 500 });
     }
 
@@ -210,6 +270,8 @@ export async function POST(req: Request) {
         date_start: startDate,
         date_end: endDate,
         warnings: parseErrors,
+        import_batch_id: importBatchId,
+        detail_event_count: detailEventIds.length,
       },
     };
 

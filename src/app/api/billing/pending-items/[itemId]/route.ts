@@ -200,23 +200,45 @@ export async function DELETE(req: Request, context: RouteContext) {
     }
 
     if (item.source_type === 'usage') {
-      const metadata = (item.metadata || {}) as { usage_event_id?: string | null };
-      const usageEventId = item.source_ref_id || metadata.usage_event_id || null;
-      if (usageEventId) {
-        const { error: usageDeleteError } = await supabase
+      const metadata = (item.metadata || {}) as {
+        usage_event_id?: string | null;
+        import_batch_id?: string | null;
+      };
+      const importBatchId = metadata.import_batch_id || null;
+      if (importBatchId) {
+        const { error: batchDeleteError } = await supabase
           .from('usage_events')
           .delete()
-          .eq('id', usageEventId)
-          .eq('created_by', user.id);
-        if (usageDeleteError) {
+          .eq('created_by', user.id)
+          .eq('metadata->>import_batch_id', importBatchId);
+        if (batchDeleteError) {
           console.error(
-            '[api/billing/pending-items/:id] usage event delete failed',
-            usageDeleteError,
+            '[api/billing/pending-items/:id] usage batch delete failed',
+            batchDeleteError,
           );
           return NextResponse.json(
-            { error: 'Unable to delete associated usage event.' },
+            { error: 'Unable to delete associated usage events.' },
             { status: 500 },
           );
+        }
+      } else {
+        const usageEventId = item.source_ref_id || metadata.usage_event_id || null;
+        if (usageEventId) {
+          const { error: usageDeleteError } = await supabase
+            .from('usage_events')
+            .delete()
+            .eq('id', usageEventId)
+            .eq('created_by', user.id);
+          if (usageDeleteError) {
+            console.error(
+              '[api/billing/pending-items/:id] usage event delete failed',
+              usageDeleteError,
+            );
+            return NextResponse.json(
+              { error: 'Unable to delete associated usage event.' },
+              { status: 500 },
+            );
+          }
         }
       }
     }

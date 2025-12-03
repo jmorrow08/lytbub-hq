@@ -106,11 +106,32 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unable to load usage data.' }, { status: 500 });
   }
 
-  const events = (data ?? []).map((event) => {
+  const filteredEvents = (data ?? []).filter((event) => {
+    const metadata = (event.metadata ?? {}) as { aggregate?: boolean };
+    return metadata?.aggregate !== true;
+  });
+
+  const events = filteredEvents.map((event) => {
     const project = Array.isArray(event.project) ? event.project[0] : event.project;
     const quantity =
       typeof event.quantity === 'number' ? event.quantity : Number(event.quantity ?? 0);
-    const unitPriceCents = Number(event.unit_price_cents ?? 0) || 0;
+    const metadata = (event.metadata ?? {}) as {
+      total_cost_cents?: number;
+      sum_cost_cents?: number;
+    };
+    const storedUnitPriceCents = Number(event.unit_price_cents ?? 0) || 0;
+    const computedRaw = Number.isFinite(quantity * storedUnitPriceCents)
+      ? quantity * storedUnitPriceCents
+      : 0;
+    const preferredRaw =
+      typeof metadata.total_cost_cents === 'number'
+        ? metadata.total_cost_cents
+        : typeof metadata.sum_cost_cents === 'number'
+        ? metadata.sum_cost_cents
+        : computedRaw;
+    const rawCostCents = Math.max(0, Math.round(preferredRaw));
+    const unitPriceCents =
+      quantity > 0 ? rawCostCents / quantity : storedUnitPriceCents;
     return {
       id: event.id,
       eventDate: event.event_date,
@@ -121,7 +142,7 @@ export async function GET(req: Request) {
       metadata: event.metadata ?? null,
       projectId: event.project_id,
       projectName: project?.name ?? null,
-      rawCostCents: Math.round(quantity * unitPriceCents),
+      rawCostCents,
     };
   });
 
@@ -178,4 +199,3 @@ export async function GET(req: Request) {
     events,
   });
 }
-
