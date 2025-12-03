@@ -847,6 +847,18 @@ export default function FinancePage() {
     return `${base}/invoice/${portalSelectedInvoice.public_share_id}`;
   }, [portalBaseUrl, portalSelectedInvoice]);
 
+  // Direct open URL avoids relying on /invoice redirect; includes all params explicitly
+  const portalOpenUrl = useMemo(() => {
+    if (!portalSelectedInvoice?.public_share_id) return '';
+    const base = portalBaseUrl || '';
+    const params = new URLSearchParams();
+    params.set('share', portalSelectedInvoice.public_share_id);
+    if (portalSelectedInvoice?.id) {
+      params.set('redirect', `/client/statements/${portalSelectedInvoice.id}`);
+    }
+    return `${base}/client/signup?${params.toString()}`;
+  }, [portalBaseUrl, portalSelectedInvoice]);
+
   const usageNotificationEntries = useMemo<UsageNotificationEntry[]>(() => {
     return billingClients
       .filter((project) => project.notify_usage_events)
@@ -1755,10 +1767,10 @@ export default function FinancePage() {
                           >
                             Copy
                           </Button>
-                          {portalShareLink && (
+                          {portalOpenUrl && (
                             <Button asChild type="button" variant="outline">
                               <a
-                                href={portalShareLink}
+                                href={portalOpenUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 aria-label="Open public share link"
