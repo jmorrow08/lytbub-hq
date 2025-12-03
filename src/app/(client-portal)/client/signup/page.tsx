@@ -128,6 +128,8 @@ function ClientSignupContent() {
     }
   }, [explicitClientId, redirectParam, router, shareId, user]);
 
+  const missingToken = !shareId && !explicitClientId;
+
   // Defensive: if we arrive here without required params, try to recover from referrer (/invoice/:shareId)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -152,8 +154,6 @@ function ClientSignupContent() {
     }
     void linkClientAccount();
   }, [explicitClientId, linkClientAccount, linkState, shareId, user]);
-
-  const missingToken = !shareId && !explicitClientId;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4">
