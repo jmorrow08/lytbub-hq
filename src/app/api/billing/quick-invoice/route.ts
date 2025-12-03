@@ -165,12 +165,11 @@ export async function POST(req: Request) {
         })
         .eq('id', clientRecord.id)
         .eq('created_by', user.id);
+      clientRecord.stripe_customer_id = project.stripe_customer_id;
+      stripeCustomerId = project.stripe_customer_id;
     }
 
-    if (
-      !project.stripe_customer_id ||
-      project.stripe_customer_id !== clientRecord.stripe_customer_id
-    ) {
+    if (project.stripe_customer_id !== stripeCustomerId) {
       await supabase
         .from('projects')
         .update({

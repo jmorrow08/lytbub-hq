@@ -779,10 +779,7 @@ export default function FinancePage() {
     const map: Record<string, { clientName: string; projectName: string }> = {};
     billingClients.forEach((project) => {
       const clientName =
-        project.client?.name ||
-        project.client?.company_name ||
-        project.client_id ||
-        'Client';
+        project.client?.name || project.client?.company_name || project.client_id || 'Client';
       map[project.id] = {
         clientName,
         projectName: project.name || 'Project',
@@ -865,10 +862,7 @@ export default function FinancePage() {
           return sum + amount;
         }, 0);
         const latest = projectPending[0];
-        const clientName =
-          project.client?.name ||
-          project.client?.company_name ||
-          'Client';
+        const clientName = project.client?.name || project.client?.company_name || 'Client';
         const projectName = project.name || 'Project';
         const message = `Usage update for ${projectName}: ${projectPending.length} pending item${
           projectPending.length === 1 ? '' : 's'
@@ -1489,7 +1483,6 @@ export default function FinancePage() {
                     </select>
                   </div>
                 </CardContent>
-                )}
               </Card>
 
               <div className="grid gap-6 xl:grid-cols-[1.7fr,1fr]">
@@ -1498,7 +1491,9 @@ export default function FinancePage() {
                     clients={scopedProjects}
                     onUpdate={handleSubscriptionUpdate}
                     updatingId={updatingSubscriptionId}
-                    onSelectClient={scopedProjects.length > 1 ? handleProjectScopeChange : undefined}
+                    onSelectClient={
+                      scopedProjects.length > 1 ? handleProjectScopeChange : undefined
+                    }
                     selectedProjectId={selectedProjectId}
                   />
 
@@ -1570,7 +1565,11 @@ export default function FinancePage() {
                           Track the time frame that invoices roll up into.
                         </p>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => setShowPeriodForm((prev) => !prev)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowPeriodForm((prev) => !prev)}
+                      >
                         {showPeriodForm ? 'Hide' : 'New period'}
                       </Button>
                     </CardHeader>
@@ -1578,14 +1577,20 @@ export default function FinancePage() {
                       <CardContent>
                         <form className="grid gap-4 md:grid-cols-2" onSubmit={handleCreatePeriod}>
                           <div>
-                            <label className="block text-sm font-medium mb-1" htmlFor="period-client">
+                            <label
+                              className="block text-sm font-medium mb-1"
+                              htmlFor="period-client"
+                            >
                               Project
                             </label>
                             <select
                               id="period-client"
                               value={periodForm.projectId}
                               onChange={(event) =>
-                                setPeriodForm((prev) => ({ ...prev, projectId: event.target.value }))
+                                setPeriodForm((prev) => ({
+                                  ...prev,
+                                  projectId: event.target.value,
+                                }))
                               }
                               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                               required
@@ -1599,7 +1604,10 @@ export default function FinancePage() {
                             </select>
                           </div>
                           <div>
-                            <label className="block text-sm font-medium mb-1" htmlFor="period-notes">
+                            <label
+                              className="block text-sm font-medium mb-1"
+                              htmlFor="period-notes"
+                            >
                               Notes
                             </label>
                             <Input
@@ -1612,7 +1620,10 @@ export default function FinancePage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium mb-1" htmlFor="period-start">
+                            <label
+                              className="block text-sm font-medium mb-1"
+                              htmlFor="period-start"
+                            >
                               Period Start
                             </label>
                             <Input
@@ -1620,7 +1631,10 @@ export default function FinancePage() {
                               type="date"
                               value={periodForm.periodStart}
                               onChange={(event) =>
-                                setPeriodForm((prev) => ({ ...prev, periodStart: event.target.value }))
+                                setPeriodForm((prev) => ({
+                                  ...prev,
+                                  periodStart: event.target.value,
+                                }))
                               }
                               required
                             />
@@ -1634,7 +1648,10 @@ export default function FinancePage() {
                               type="date"
                               value={periodForm.periodEnd}
                               onChange={(event) =>
-                                setPeriodForm((prev) => ({ ...prev, periodEnd: event.target.value }))
+                                setPeriodForm((prev) => ({
+                                  ...prev,
+                                  periodEnd: event.target.value,
+                                }))
                               }
                               required
                             />
@@ -1697,99 +1714,104 @@ export default function FinancePage() {
                       microsite.
                     </p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setPortalExpanded((prev) => !prev)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPortalExpanded((prev) => !prev)}
+                  >
                     {portalExpanded ? 'Hide' : 'Edit'}
                   </Button>
                 </CardHeader>
                 {portalExpanded && (
                   <CardContent className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Invoice</label>
-                      <select
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={portalInvoiceId}
-                        onChange={(event) => setPortalInvoiceId(event.target.value)}
-                      >
-                        {invoices.map((inv) => (
-                          <option key={inv.id} value={inv.id}>
-                            {inv.invoice_number || inv.id} • {inv.status}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Share link</label>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          readOnly
-                          value={portalShareLink || 'Generate a link first'}
-                          onFocus={(e) => e.target.select()}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={!portalShareLink}
-                          onClick={handlePortalCopyLink}
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Invoice</label>
+                        <select
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={portalInvoiceId}
+                          onChange={(event) => setPortalInvoiceId(event.target.value)}
                         >
-                          Copy
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={handlePortalRegenerate}
-                          disabled={portalSaving}
-                        >
-                          {portalSaving ? 'Working…' : 'Generate'}
-                        </Button>
+                          {invoices.map((inv) => (
+                            <option key={inv.id} value={inv.id}>
+                              {inv.invoice_number || inv.id} • {inv.status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Share link</label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            readOnly
+                            value={portalShareLink || 'Generate a link first'}
+                            onFocus={(e) => e.target.select()}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={!portalShareLink}
+                            onClick={handlePortalCopyLink}
+                          >
+                            Copy
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={handlePortalRegenerate}
+                            disabled={portalSaving}
+                          >
+                            {portalSaving ? 'Working…' : 'Generate'}
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
-                        Share expiration (optional)
-                      </label>
-                      <Input
-                        type="datetime-local"
-                        value={portalExpiresAt}
-                        onChange={(event) => setPortalExpiresAt(event.target.value)}
-                        placeholder="Leave blank for no expiry"
-                      />
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Share expiration (optional)
+                        </label>
+                        <Input
+                          type="datetime-local"
+                          value={portalExpiresAt}
+                          onChange={(event) => setPortalExpiresAt(event.target.value)}
+                          placeholder="Leave blank for no expiry"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Portal payload (JSON)
+                        </label>
+                        <textarea
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[220px] font-mono"
+                          value={portalPayloadText}
+                          onChange={(event) => setPortalPayloadText(event.target.value)}
+                          spellCheck={false}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
-                        Portal payload (JSON)
-                      </label>
-                      <textarea
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[220px] font-mono"
-                        value={portalPayloadText}
-                        onChange={(event) => setPortalPayloadText(event.target.value)}
-                        spellCheck={false}
-                      />
-                    </div>
-                  </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-muted-foreground">
-                      Keys to consider: usageDetails, shadowItems, shadowSummary, aiNotes,
-                      roadmapUpdates, voiceScript.
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-muted-foreground">
+                        Keys to consider: usageDetails, shadowItems, shadowSummary, aiNotes,
+                        roadmapUpdates, voiceScript.
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={handlePortalSave}
+                        disabled={portalSaving || !portalSelectedInvoice}
+                      >
+                        {portalSaving ? 'Saving…' : 'Save Portal Content'}
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      onClick={handlePortalSave}
-                      disabled={portalSaving || !portalSelectedInvoice}
-                    >
-                      {portalSaving ? 'Saving…' : 'Save Portal Content'}
-                    </Button>
-                  </div>
 
-                  {portalStatus && (
-                    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                      {portalStatus}
-                    </div>
-                  )}
-                </CardContent>
+                    {portalStatus && (
+                      <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                        {portalStatus}
+                      </div>
+                    )}
+                  </CardContent>
+                )}
               </Card>
             </div>
           )}
