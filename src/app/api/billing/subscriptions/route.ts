@@ -120,6 +120,62 @@ export async function PATCH(req: Request) {
       client.stripe_customer_id || project.stripe_customer_id || null;
     let stripeSubscriptionId: string | null = project.stripe_subscription_id || null;
 
+    // If enabling subscriptions, validate/repair an existing customer ID (handles test→live switches)
+    if (subscriptionEnabled && hasStripeSecret && stripeCustomerId) {
+      try {
+        await createOrUpdateCustomer({
+          customerId: stripeCustomerId,
+          email: client.email ?? undefined,
+          name: client.name || client.company_name || undefined,
+          phone: client.phone ?? undefined,
+          metadata: { client_id: client.id, project_id: project.id },
+        });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        const missing = /No such customer/i.test(message) || /resource_missing/i.test(message);
+        if (missing) {
+          try {
+            const created = await createOrUpdateCustomer({
+              email: client.email ?? undefined,
+              name: client.name || client.company_name || undefined,
+              phone: client.phone ?? undefined,
+              metadata: { client_id: client.id, project_id: project.id },
+            });
+            stripeCustomerId = created.id;
+            updates.stripe_customer_id = created.id;
+            await supabase
+              .from('clients')
+              .update({
+                stripe_customer_id: created.id,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', client.id)
+              .eq('created_by', user.id);
+          } catch (createErr) {
+            console.error(
+              '[api/billing/subscriptions] repairing Stripe customer failed',
+              createErr,
+            );
+            return NextResponse.json(
+              { error: 'Unable to repair Stripe customer for this client.' },
+              { status: 502 },
+            );
+          }
+        } else {
+          console.error('[api/billing/subscriptions] validating Stripe customer failed', e);
+          return NextResponse.json(
+            {
+              error:
+                e instanceof Error
+                  ? e.message
+                  : 'Unable to validate Stripe customer. Please check Stripe configuration.',
+            },
+            { status: 502 },
+          );
+        }
+      }
+    }
+
     // Backfill legacy projects where the client does not yet have the Stripe customer reference
     if (!client.stripe_customer_id && project.stripe_customer_id) {
       await supabase

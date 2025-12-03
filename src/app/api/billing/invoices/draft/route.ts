@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
-import { addInvoiceLineItem, createDraftInvoice } from '@/lib/stripe';
+import { addInvoiceLineItem, createDraftInvoice, createOrUpdateCustomer } from '@/lib/stripe';
 import {
   applyPaymentMethodAdjustments,
   DraftLine,
@@ -38,9 +38,14 @@ export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const hasStripeSecret = Boolean(process.env.STRIPE_SECRET_KEY);
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 });
+    }
+
+    if (!hasStripeSecret) {
+      return NextResponse.json({ error: 'Stripe is not configured.' }, { status: 500 });
     }
 
     const authHeader = req.headers.get('authorization');
@@ -107,7 +112,7 @@ export async function POST(req: Request) {
 
     const { data: clientRecord, error: clientError } = await supabase
       .from('clients')
-      .select('id, stripe_customer_id')
+      .select('id, stripe_customer_id, name, company_name, email, phone')
       .eq('id', clientId)
       .eq('created_by', user.id)
       .maybeSingle();
@@ -132,11 +137,83 @@ export async function POST(req: Request) {
         .eq('created_by', user.id);
     }
 
-    const stripeCustomerId = clientRecord.stripe_customer_id || project.stripe_customer_id || null;
+    // Resolve a valid Stripe customer ID (auto-repair if the stored ID is from the wrong Stripe mode)
+    let stripeCustomerId: string | null =
+      clientRecord.stripe_customer_id || project.stripe_customer_id || null;
+    try {
+      const displayName =
+        (clientRecord.name && clientRecord.name.trim().length > 0 ? clientRecord.name : null) ??
+        (clientRecord.company_name && clientRecord.company_name.trim().length > 0
+          ? clientRecord.company_name
+          : null) ??
+        undefined;
+
+      // Try to update existing customer; if it doesn't exist in the current Stripe mode, create a new one
+      if (stripeCustomerId) {
+        try {
+          const customer = await createOrUpdateCustomer({
+            customerId: stripeCustomerId,
+            email: clientRecord.email ?? undefined,
+            name: displayName,
+            phone: clientRecord.phone ?? undefined,
+            metadata: { client_id: clientRecord.id, project_id: project.id },
+          });
+          stripeCustomerId = customer.id;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const isMissing = /No such customer/i.test(msg) || /resource_missing/i.test(msg);
+          if (isMissing) {
+            const created = await createOrUpdateCustomer({
+              email: clientRecord.email ?? undefined,
+              name: displayName,
+              phone: clientRecord.phone ?? undefined,
+              metadata: { client_id: clientRecord.id, project_id: project.id },
+            });
+            stripeCustomerId = created.id;
+          } else {
+            console.error('[api/billing/invoices/draft] failed to sync Stripe customer', e);
+            return NextResponse.json(
+              { error: 'Unable to sync Stripe customer for this client.' },
+              { status: 502 },
+            );
+          }
+        }
+      } else {
+        const created = await createOrUpdateCustomer({
+          email: clientRecord.email ?? undefined,
+          name: displayName,
+          phone: clientRecord.phone ?? undefined,
+          metadata: { client_id: clientRecord.id, project_id: project.id },
+        });
+        stripeCustomerId = created.id;
+      }
+
+      // Persist back to the client if changed or previously missing
+      if (
+        !clientRecord.stripe_customer_id ||
+        clientRecord.stripe_customer_id !== stripeCustomerId
+      ) {
+        await supabase
+          .from('clients')
+          .update({
+            stripe_customer_id: stripeCustomerId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', clientRecord.id)
+          .eq('created_by', user.id);
+      }
+    } catch (syncError) {
+      console.error('[api/billing/invoices/draft] unable to ensure Stripe customer', syncError);
+      return NextResponse.json(
+        { error: 'Unable to prepare Stripe customer for invoicing.' },
+        { status: 502 },
+      );
+    }
+
     if (!stripeCustomerId) {
       return NextResponse.json(
-        { error: 'Client is missing a Stripe customer. Configure subscription first.' },
-        { status: 400 },
+        { error: 'Unable to resolve a Stripe customer for this client.' },
+        { status: 502 },
       );
     }
 
@@ -318,14 +395,37 @@ export async function POST(req: Request) {
       invoiceMetadata.memo = payload.memo;
     }
 
-    const stripeInvoice = await createDraftInvoice({
-      customerId: stripeCustomerId,
-      subscriptionId: includeBaseRetainer ? project.stripe_subscription_id || undefined : undefined,
-      collectionMethod,
-      dueDate: dueDateUnix,
-      description,
-      metadata: invoiceMetadata,
-    });
+    let stripeInvoice;
+    try {
+      stripeInvoice = await createDraftInvoice({
+        customerId: stripeCustomerId,
+        subscriptionId: includeBaseRetainer
+          ? project.stripe_subscription_id || undefined
+          : undefined,
+        collectionMethod,
+        dueDate: dueDateUnix,
+        description,
+        metadata: invoiceMetadata,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const subMissing =
+        /No such subscription/i.test(msg) ||
+        (/resource_missing/i.test(msg) && /subscription/i.test(msg));
+      if (includeBaseRetainer && subMissing) {
+        // Retry without a subscription reference (handles test→live migration cases)
+        stripeInvoice = await createDraftInvoice({
+          customerId: stripeCustomerId,
+          subscriptionId: undefined,
+          collectionMethod,
+          dueDate: dueDateUnix,
+          description,
+          metadata: invoiceMetadata,
+        });
+      } else {
+        throw e;
+      }
+    }
 
     for (const line of calculatedLines) {
       const stripeMetadata: Record<string, string> = {
@@ -440,7 +540,8 @@ export async function POST(req: Request) {
           const metadata = item.metadata ?? {};
           const sumCost =
             Number(metadata.sum_cost_cents ?? metadata.total_cents ?? item.unit_price_cents) || 0;
-          const metricType = typeof metadata.metric_type === 'string' ? metadata.metric_type : 'usage';
+          const metricType =
+            typeof metadata.metric_type === 'string' ? metadata.metric_type : 'usage';
           return {
             metricType,
             quantity: Number(metadata.total_rows ?? item.quantity ?? 1) || 1,
