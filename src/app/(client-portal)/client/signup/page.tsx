@@ -128,6 +128,21 @@ function ClientSignupContent() {
     }
   }, [explicitClientId, redirectParam, router, shareId, user]);
 
+  // Defensive: if we arrive here without required params, try to recover from referrer (/invoice/:shareId)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!missingToken) return;
+    const ref = document.referrer || '';
+    const match = ref.match(/\/invoice\/([a-z0-9-]+)/i);
+    if (match && match[1]) {
+      const recoveredShare = match[1];
+      const params = new URLSearchParams();
+      params.set('share', recoveredShare);
+      if (redirectParam) params.set('redirect', redirectParam);
+      router.replace(`/client/signup?${params.toString()}`);
+    }
+  }, [missingToken, redirectParam, router]);
+
   useEffect(() => {
     if (!user || linkState !== 'idle') {
       return;

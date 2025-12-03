@@ -1755,6 +1755,18 @@ export default function FinancePage() {
                           >
                             Copy
                           </Button>
+                          {portalShareLink && (
+                            <Button asChild type="button" variant="outline">
+                              <a
+                                href={portalShareLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label="Open public share link"
+                              >
+                                Open
+                              </a>
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             onClick={handlePortalRegenerate}
@@ -1796,13 +1808,27 @@ export default function FinancePage() {
                         Keys to consider: usageDetails, shadowItems, shadowSummary, aiNotes,
                         roadmapUpdates, voiceScript.
                       </div>
-                      <Button
-                        type="button"
-                        onClick={handlePortalSave}
-                        disabled={portalSaving || !portalSelectedInvoice}
-                      >
-                        {portalSaving ? 'Saving…' : 'Save Portal Content'}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {portalSelectedInvoice?.id && portalSelectedInvoice?.client_id && (
+                          <Button asChild type="button" variant="outline">
+                            <a
+                              href={`/client/statements/${portalSelectedInvoice.id}?client=${portalSelectedInvoice.client_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label="Admin preview statement"
+                            >
+                              Admin Preview
+                            </a>
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          onClick={handlePortalSave}
+                          disabled={portalSaving || !portalSelectedInvoice}
+                        >
+                          {portalSaving ? 'Saving…' : 'Save Portal Content'}
+                        </Button>
+                      </div>
                     </div>
 
                     {portalStatus && (
