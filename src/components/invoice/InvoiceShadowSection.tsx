@@ -8,17 +8,17 @@ export function InvoiceShadowSection({ invoice }: { invoice: PublicInvoiceView }
     <Card className="bg-slate-900/70 border-slate-800">
       <CardHeader>
         <CardTitle className="text-sm font-medium text-slate-200">
-          Shadow Bill: Real-World Value
+          Value breakdown & fee details
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <p className="text-xs text-slate-400">
-          This section is not an amount you are being charged. It frames the market value of the AI
-          system and work delivered so you understand the leverage behind the current pricing.
+          Not a charge — this explains what each fee covers and the real-world value of work
+          delivered.
         </p>
 
         {shadowItems.length === 0 && (
-          <p className="text-xs text-slate-500">No shadow value items provided for this period.</p>
+          <p className="text-xs text-slate-500">No value items provided for this period.</p>
         )}
 
         <div className="grid gap-3 md:grid-cols-3">
@@ -28,9 +28,7 @@ export function InvoiceShadowSection({ invoice }: { invoice: PublicInvoiceView }
               className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
             >
               <div className="text-xs font-semibold text-slate-200">{item.label}</div>
-              <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">
-                {item.description}
-              </p>
+              <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">{item.description}</p>
               {typeof item.impliedValue === 'number' && (
                 <div className="mt-2 text-xs text-slate-200">
                   Implied value: ~${item.impliedValue.toLocaleString()}
@@ -62,6 +60,24 @@ export function InvoiceShadowSection({ invoice }: { invoice: PublicInvoiceView }
                 ~${(shadowSummary.complimentaryValue ?? 0).toLocaleString()}
               </div>
             </div>
+            {typeof shadowSummary.retainerCurrentCents === 'number' && (
+              <div className="md:col-span-1">
+                <div className="text-slate-400">Retainer (current vs. normal)</div>
+                <div className="text-slate-50 font-semibold">
+                  ${(shadowSummary.retainerCurrentCents / 100).toFixed(2)}{' '}
+                  <span className="text-slate-500">/</span>{' '}
+                  {typeof shadowSummary.retainerNormalCents === 'number'
+                    ? `$${(shadowSummary.retainerNormalCents / 100).toFixed(2)}`
+                    : '—'}
+                </div>
+                {Array.isArray(shadowSummary.retainerIncludes) &&
+                  shadowSummary.retainerIncludes.length > 0 && (
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      Includes: {shadowSummary.retainerIncludes.join(', ')}
+                    </div>
+                  )}
+              </div>
+            )}
             {shadowSummary.note && (
               <p className="text-[11px] text-slate-400 md:col-span-1">{shadowSummary.note}</p>
             )}

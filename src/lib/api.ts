@@ -698,6 +698,44 @@ export const importUsageCsv = async (params: {
   return data;
 };
 
+export const uploadShadowBreakdown = async (params: {
+  invoiceId: string;
+  file: File;
+  apply?: boolean;
+}): Promise<{
+  shadowItems: Array<{
+    label: string;
+    description?: string;
+    hours?: number;
+    marketRatePerHour?: number;
+    impliedValue?: number;
+    isComplimentary?: boolean;
+  }>;
+  shadowSummary?: {
+    totalImpliedValue?: number;
+    complimentaryValue?: number;
+    note?: string;
+    retainerCurrentCents?: number;
+    retainerNormalCents?: number;
+    retainerIncludes?: string[];
+  };
+  warnings?: string[];
+  applied?: boolean;
+  portalPayload?: Record<string, unknown>;
+}> => {
+  const formData = new FormData();
+  formData.append('invoiceId', params.invoiceId);
+  formData.append('file', params.file);
+  if (params.apply) formData.append('apply', 'true');
+
+  const data = await authedRequest('/api/billing/shadow-import', {
+    method: 'POST',
+    body: formData,
+    isFormData: true,
+  });
+  return data as any;
+};
+
 export const createQuickInvoice = async (payload: {
   projectId: string;
   pendingItemIds: string[];

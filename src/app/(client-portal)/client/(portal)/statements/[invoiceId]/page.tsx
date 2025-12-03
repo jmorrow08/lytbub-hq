@@ -380,13 +380,13 @@ export default function ClientStatementDetailPage() {
       <Card className="bg-slate-900/60 border-slate-800">
         <CardHeader>
           <CardTitle className="text-sm font-semibold text-slate-200">
-            Shadow bill: Real-world value
+            Value breakdown & fee details
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <p className="text-xs text-muted-foreground">
-            This section frames the market value of work delivered so you understand the leverage
-            behind the current pricing.
+            Not a charge — this explains what each fee covers and the real-world value of work
+            delivered.
           </p>
           {invoice.portalPayload.shadowItems?.length ? (
             <div className="grid gap-3 md:grid-cols-3">
@@ -421,11 +421,11 @@ export default function ClientStatementDetailPage() {
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No shadow value items provided for this period.
+              No value items provided for this period.
             </p>
           )}
           {invoice.portalPayload.shadowSummary && (
-            <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+            <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300 space-y-1">
               <div>
                 Implied:{' '}
                 {currency.format(invoice.portalPayload.shadowSummary.totalImpliedValue ?? 0)}
@@ -434,6 +434,29 @@ export default function ClientStatementDetailPage() {
                 Complimentary:{' '}
                 {currency.format(invoice.portalPayload.shadowSummary.complimentaryValue ?? 0)}
               </div>
+              {typeof invoice.portalPayload.shadowSummary.retainerCurrentCents === 'number' && (
+                <div>
+                  Retainer:{' '}
+                  {currency.format(
+                    (invoice.portalPayload.shadowSummary.retainerCurrentCents ?? 0) / 100,
+                  )}{' '}
+                  {typeof invoice.portalPayload.shadowSummary.retainerNormalCents === 'number' && (
+                    <span className="text-slate-500">
+                      (normal{' '}
+                      {currency.format(
+                        (invoice.portalPayload.shadowSummary.retainerNormalCents ?? 0) / 100,
+                      )}
+                      )
+                    </span>
+                  )}
+                </div>
+              )}
+              {Array.isArray(invoice.portalPayload.shadowSummary.retainerIncludes) &&
+                invoice.portalPayload.shadowSummary.retainerIncludes.length > 0 && (
+                  <div className="text-[11px] text-muted-foreground">
+                    Includes: {invoice.portalPayload.shadowSummary.retainerIncludes.join(', ')}
+                  </div>
+                )}
               {invoice.portalPayload.shadowSummary.note && (
                 <div className="mt-1 text-[11px] text-muted-foreground">
                   Note: {invoice.portalPayload.shadowSummary.note}

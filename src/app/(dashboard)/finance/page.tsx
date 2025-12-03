@@ -52,6 +52,7 @@ import { SubscriptionManager } from '@/components/billing/SubscriptionManager';
 import { InvoiceList } from '@/components/billing/InvoiceList';
 import { PendingItemsTable } from '@/components/billing/PendingItemsTable';
 import { cn } from '@/lib/utils';
+import { ShadowUploadForm } from '@/components/billing/ShadowUploadForm';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -640,6 +641,16 @@ export default function FinancePage() {
       setPortalStatus(message);
     } finally {
       setPortalSaving(false);
+    }
+  };
+  const mergePortalPayload = (payload: Record<string, unknown>) => {
+    try {
+      const current = portalPayloadText.trim() ? JSON.parse(portalPayloadText) : {};
+      const merged = { ...current, ...payload };
+      setPortalPayloadText(JSON.stringify(merged, null, 2));
+      setPortalStatus('Parsed breakdown merged. Review and save.');
+    } catch {
+      setPortalStatus('Unable to merge parsed payload. Ensure current JSON is valid.');
     }
   };
 
@@ -1844,6 +1855,10 @@ export default function FinancePage() {
                 </CardHeader>
                 {portalExpanded && (
                   <CardContent className="space-y-4">
+                    <ShadowUploadForm
+                      invoiceId={portalInvoiceId || null}
+                      onMerge={mergePortalPayload}
+                    />
                     <div className="grid gap-3 md:grid-cols-2">
                       <div>
                         <label className="block text-sm font-medium mb-1">Invoice</label>

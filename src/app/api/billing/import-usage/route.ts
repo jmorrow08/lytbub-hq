@@ -242,7 +242,8 @@ export async function POST(req: Request) {
       .single();
     if (insertError || !usageEvent) {
       console.error('[api/billing/import-usage] insert failed', insertError);
-      if (detailEventIds.length > 0) {
+      // Cleanup any previously inserted detail events for this batch, regardless of id select result.
+      if (detailUsageEvents.length > 0) {
         await supabase
           .from('usage_events')
           .delete()
@@ -285,6 +286,14 @@ export async function POST(req: Request) {
       console.error('[api/billing/import-usage] pending insert failed', pendingError);
       // best-effort cleanup
       await supabase.from('usage_events').delete().eq('id', usageEvent.id);
+      // also remove any detail usage events inserted for this batch to avoid orphans
+      if (detailUsageEvents.length > 0) {
+        await supabase
+          .from('usage_events')
+          .delete()
+          .eq('created_by', user.id)
+          .eq('metadata->>import_batch_id', importBatchId);
+      }
       return NextResponse.json(
         { error: 'Failed to queue usage charges. No data was imported.' },
         { status: 500 },

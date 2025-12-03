@@ -91,6 +91,10 @@ export type PortalShadowSummary = {
   totalImpliedValue?: number;
   complimentaryValue?: number;
   note?: string;
+  // Extended optional fields for retainer context (populated from uploads)
+  retainerCurrentCents?: number;
+  retainerNormalCents?: number;
+  retainerIncludes?: string[];
 };
 
 export type PortalPayload = {
@@ -277,8 +281,7 @@ export async function fetchPublicInvoice(shareId: string): Promise<PublicInvoice
       line.metadata && typeof line.metadata === 'object'
         ? (line.metadata as Record<string, unknown>)
         : null;
-    const metaMemo =
-      metaRecord && typeof metaRecord.memo === 'string' ? metaRecord.memo : null;
+    const metaMemo = metaRecord && typeof metaRecord.memo === 'string' ? metaRecord.memo : null;
     const metaNote = metaRecord && typeof metaRecord.note === 'string' ? metaRecord.note : null;
     const label =
       typeof line.description === 'string' && line.description.trim().length > 0
