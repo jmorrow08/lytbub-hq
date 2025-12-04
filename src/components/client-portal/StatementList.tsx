@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatDate } from '@/lib/date-utils';
+import { downloadStatement } from '@/lib/client-portal/download-statement';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -68,6 +69,9 @@ export function StatementList({
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
   const [sortDesc, setSortDesc] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [downloadTarget, setDownloadTarget] = useState<{ id: string; type: 'csv' | 'pdf' } | null>(
+    null,
+  );
 
   const processed = useMemo(() => {
     let list = [...statements];
@@ -174,18 +178,54 @@ export function StatementList({
                       <Button variant="ghost" size="sm" asChild>
                         <Link href={`/client/statements/${invoice.id}`}>View</Link>
                       </Button>
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/api/client-portal/statements/${invoice.id}/download?type=csv`}>
-                          CSV
-                        </Link>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          downloadTarget?.id === invoice.id && downloadTarget?.type === 'csv'
+                        }
+                        onClick={async () => {
+                          setDownloadTarget({ id: invoice.id, type: 'csv' });
+                          try {
+                            await downloadStatement(invoice.id, 'csv');
+                          } catch (error) {
+                            console.error('Failed to download CSV', error);
+                            window.alert(
+                              error instanceof Error
+                                ? error.message
+                                : 'Unable to download statement.',
+                            );
+                          } finally {
+                            setDownloadTarget(null);
+                          }
+                        }}
+                      >
+                        CSV
                       </Button>
                       {invoice.pdfUrl && (
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link
-                            href={`/api/client-portal/statements/${invoice.id}/download?type=pdf`}
-                          >
-                            PDF
-                          </Link>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={
+                            downloadTarget?.id === invoice.id && downloadTarget?.type === 'pdf'
+                          }
+                          onClick={async () => {
+                            setDownloadTarget({ id: invoice.id, type: 'pdf' });
+                            try {
+                              await downloadStatement(invoice.id, 'pdf');
+                            } catch (error) {
+                              console.error('Failed to download PDF', error);
+                              window.alert(
+                                error instanceof Error
+                                  ? error.message
+                                  : 'Unable to download statement.',
+                              );
+                            } finally {
+                              setDownloadTarget(null);
+                            }
+                          }}
+                        >
+                          PDF
                         </Button>
                       )}
                       {invoice.hostedUrl && invoice.status === 'open' && (

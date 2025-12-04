@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { UsageBreakdown } from '@/components/client-portal/UsageBreakdown';
 import { portalFetch } from '@/lib/client-portal/fetch';
 import { formatDate } from '@/lib/date-utils';
+import { downloadStatement } from '@/lib/client-portal/download-statement';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -97,6 +98,7 @@ export default function ClientStatementDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState<'csv' | 'pdf' | null>(null);
 
   useEffect(() => {
     if (!invoiceId) {
@@ -198,16 +200,44 @@ export default function ClientStatementDetailPage() {
         </Button>
         <div className="flex flex-wrap gap-2">
           {invoice.pdfUrl && (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/api/client-portal/statements/${invoice.id}/download?type=pdf`}>
-                Download PDF
-              </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={downloading === 'pdf'}
+              onClick={async () => {
+                setDownloading('pdf');
+                try {
+                  await downloadStatement(invoice.id, 'pdf');
+                } catch (err) {
+                  console.error('Failed to download PDF', err);
+                  window.alert(
+                    err instanceof Error ? err.message : 'Unable to download statement.',
+                  );
+                } finally {
+                  setDownloading(null);
+                }
+              }}
+            >
+              Download PDF
             </Button>
           )}
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/api/client-portal/statements/${invoice.id}/download?type=csv`}>
-              Download CSV
-            </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={downloading === 'csv'}
+            onClick={async () => {
+              setDownloading('csv');
+              try {
+                await downloadStatement(invoice.id, 'csv');
+              } catch (err) {
+                console.error('Failed to download CSV', err);
+                window.alert(err instanceof Error ? err.message : 'Unable to download statement.');
+              } finally {
+                setDownloading(null);
+              }
+            }}
+          >
+            Download CSV
           </Button>
           {shareUrl && (
             <Button

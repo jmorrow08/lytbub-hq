@@ -96,6 +96,7 @@ type RouteContext = {
 export async function GET(req: Request, context: RouteContext) {
   const type = new URL(req.url).searchParams.get('type') ?? 'pdf';
   const { invoiceId } = await context.params;
+  const wantsJson = (req.headers.get('x-client-portal-download') ?? '').toLowerCase() === '1';
 
   if (!invoiceId) {
     return NextResponse.json({ error: 'Invoice ID is required.' }, { status: 400 });
@@ -143,6 +144,9 @@ export async function GET(req: Request, context: RouteContext) {
   if (type === 'pdf') {
     const pdfUrl = invoice.stripe_pdf_url;
     if (pdfUrl) {
+      if (wantsJson) {
+        return NextResponse.json({ url: pdfUrl });
+      }
       return NextResponse.redirect(pdfUrl);
     }
     return NextResponse.json({ error: 'PDF not available for this invoice.' }, { status: 404 });
