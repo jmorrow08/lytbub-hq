@@ -107,8 +107,8 @@ export async function POST(req: Request) {
     let totalCostDollars = 0;
     let totalTokens = 0;
     let validRows = 0;
-    let firstDate: Date | null = null;
-    let lastDate: Date | null = null;
+    let firstDate: Date | undefined;
+    let lastDate: Date | undefined;
 
     const importBatchId = randomUUID();
     const detailUsageEvents: Array<{
@@ -202,7 +202,7 @@ export async function POST(req: Request) {
       detailEventIds = (detailRows ?? []).map((row) => row.id);
     }
 
-    const dateFormatter = (date: Date | null) =>
+    const dateFormatter = (date: Date | null | undefined) =>
       date ? date.toISOString().slice(0, 10) : undefined;
     const startDate = dateFormatter(firstDate);
     const endDate = dateFormatter(lastDate);
@@ -214,7 +214,7 @@ export async function POST(req: Request) {
       startDate && endDate ? `${startDate} → ${endDate}` : startDate || endDate || 'usage';
     const description = `AI usage ${rangeSegment} (${validRows} rows; ${tokenSegment})`;
 
-    const aggregateEventDate = lastDate ? lastDate.toISOString() : new Date().toISOString();
+    const aggregateEventDate = (lastDate ?? new Date()).toISOString();
     const aggregateRow = {
       project_id: projectId,
       billing_period_id: billingPeriodId,

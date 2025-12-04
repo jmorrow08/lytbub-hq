@@ -9,8 +9,8 @@ function fromYmd(value: string): Date | null {
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
     return null;
   }
-  // Construct the date in local time so we don't lose a day when formatting.
-  const date = new Date(year, month - 1, day);
+  // Construct the date in UTC so formatting is consistent across timezones.
+  const date = new Date(Date.UTC(year, month - 1, day));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
