@@ -16,6 +16,10 @@ function fromYmd(value: string): Date | null {
 
 export type DateLike = string | number | Date | null | undefined;
 
+function isDateOnlyString(input: DateLike): input is string {
+  return typeof input === 'string' && YMD_REGEX.test(input.trim());
+}
+
 export function parseDateLike(input: DateLike): Date | null {
   if (input == null) return null;
   if (input instanceof Date) {
@@ -43,7 +47,10 @@ export function formatDate(
   locale?: string,
 ): string | null {
   const date = parseDateLike(input);
-  return date ? date.toLocaleDateString(locale, options) : null;
+  if (!date) return null;
+  const needsUtc = isDateOnlyString(input) && options?.timeZone == null;
+  const formatOptions = needsUtc ? { ...(options ?? {}), timeZone: 'UTC' } : options;
+  return date.toLocaleDateString(locale, formatOptions);
 }
 
 export function formatDateTime(
@@ -52,5 +59,8 @@ export function formatDateTime(
   locale?: string,
 ): string | null {
   const date = parseDateLike(input);
-  return date ? date.toLocaleString(locale, options) : null;
+  if (!date) return null;
+  const needsUtc = isDateOnlyString(input) && options?.timeZone == null;
+  const formatOptions = needsUtc ? { ...(options ?? {}), timeZone: 'UTC' } : options;
+  return date.toLocaleString(locale, formatOptions);
 }
