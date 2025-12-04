@@ -7,7 +7,7 @@ import {
   type DraftLine,
   type PaymentMethodType,
 } from '@/lib/billing-calculator';
-import { addInvoiceLineItem, createDraftInvoice, finalizeAndSendInvoice } from '@/lib/stripe';
+import { addInvoiceLineItem, createDraftInvoice, finalizeInvoiceManually } from '@/lib/stripe';
 import {
   generateInvoiceNumber,
   mapPendingToLineType,
@@ -344,9 +344,7 @@ export async function POST(req: Request) {
         let finalizeStatus: 'finalized' | 'draft' = 'draft';
 
         if (project.billing_auto_finalize ?? true) {
-          finalizedInvoice = await finalizeAndSendInvoice(stripeInvoice.id, {
-            sendImmediately: collectionMethod === 'send_invoice',
-          });
+          finalizedInvoice = await finalizeInvoiceManually(stripeInvoice.id);
 
           const { error: updateError } = await supabase
             .from('invoices')

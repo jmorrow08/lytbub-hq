@@ -165,18 +165,9 @@ export async function addInvoiceLineItem({
   return stripe.invoiceItems.create(payload);
 }
 
-export async function finalizeAndSendInvoice(
-  invoiceId: string,
-  { sendImmediately = true }: { sendImmediately?: boolean } = {},
-): Promise<Stripe.Invoice> {
+export async function finalizeInvoiceManually(invoiceId: string): Promise<Stripe.Invoice> {
   const stripe = getStripe();
-  const finalized = await stripe.invoices.finalizeInvoice(invoiceId, { auto_advance: true });
-
-  if (sendImmediately && finalized.collection_method === 'send_invoice') {
-    await stripe.invoices.sendInvoice(finalized.id);
-  }
-
-  return finalized;
+  return stripe.invoices.finalizeInvoice(invoiceId, { auto_advance: false });
 }
 
 type SubscriptionArgs = {

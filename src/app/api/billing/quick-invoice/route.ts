@@ -8,7 +8,7 @@ import {
   type DraftLine,
   type PaymentMethodType,
 } from '@/lib/billing-calculator';
-import { addInvoiceLineItem, createDraftInvoice, finalizeAndSendInvoice } from '@/lib/stripe';
+import { addInvoiceLineItem, createDraftInvoice, finalizeInvoiceManually } from '@/lib/stripe';
 import {
   generateInvoiceNumber,
   mapPendingToLineType,
@@ -420,9 +420,7 @@ export async function POST(req: Request) {
 
     if (finalizeNow) {
       try {
-        finalizedInvoice = await finalizeAndSendInvoice(stripeInvoice.id, {
-          sendImmediately: collectionMethod === 'send_invoice',
-        });
+        finalizedInvoice = await finalizeInvoiceManually(stripeInvoice.id);
       } catch (finalizeError) {
         console.error('[api/billing/quick-invoice] finalize failed', finalizeError);
         needsPaymentMethod = collectionMethod === 'charge_automatically';

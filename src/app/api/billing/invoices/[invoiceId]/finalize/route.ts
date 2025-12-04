@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
-import { finalizeAndSendInvoice } from '@/lib/stripe';
+import { finalizeInvoiceManually } from '@/lib/stripe';
 
 type InvoiceRouteContext = {
   params: Promise<{ invoiceId: string }>;
@@ -56,9 +56,7 @@ export async function POST(req: Request, context: InvoiceRouteContext) {
       return NextResponse.json({ error: 'Invoice is missing Stripe linkage.' }, { status: 400 });
     }
 
-    const finalized = await finalizeAndSendInvoice(invoice.stripe_invoice_id, {
-      sendImmediately: invoice.payment_method_type !== 'offline',
-    });
+    const finalized = await finalizeInvoiceManually(invoice.stripe_invoice_id);
 
     const { data: updated, error: updateError } = await supabase
       .from('invoices')
@@ -85,4 +83,3 @@ export async function POST(req: Request, context: InvoiceRouteContext) {
     return NextResponse.json({ error: 'Unexpected server error.' }, { status: 500 });
   }
 }
-
