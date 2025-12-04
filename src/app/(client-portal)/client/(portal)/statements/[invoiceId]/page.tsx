@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { UsageBreakdown } from '@/components/client-portal/UsageBreakdown';
 import { portalFetch } from '@/lib/client-portal/fetch';
+import { formatDate } from '@/lib/date-utils';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -173,6 +174,7 @@ export default function ClientStatementDetailPage() {
   const total = centsToUsd(invoice.totalCents);
   const subtotal = centsToUsd(invoice.subtotalCents);
   const tax = centsToUsd(invoice.taxCents);
+  const dueDateLabel = invoice.dueDate ? formatDate(invoice.dueDate) ?? 'On receipt' : 'On receipt';
   const hasPayments = invoice.payments.length > 0;
   const usageItems =
     invoice.portalPayload.usageDetails?.map((detail) => ({
@@ -244,10 +246,7 @@ export default function ClientStatementDetailPage() {
               <div className="text-right">
                 <div className="text-xs uppercase tracking-wide text-slate-400">Amount Due</div>
                 <div className="text-2xl font-semibold text-slate-50">{amountDue}</div>
-                <div className="text-xs text-slate-500">
-                  Due{' '}
-                  {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'On receipt'}
-                </div>
+                <div className="text-xs text-slate-500">Due {dueDateLabel}</div>
               </div>
               {invoice.hostedUrl && invoice.status === 'open' && (
                 <Button asChild>

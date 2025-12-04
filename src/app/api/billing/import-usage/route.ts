@@ -158,11 +158,11 @@ export async function POST(req: Request) {
 
       const metricType = row.metric_type?.trim() || 'usage';
       const quantity = Number.isFinite(row.quantity) ? row.quantity : 1;
-      const eventDate = parsedDate.toISOString().slice(0, 10);
+      const eventTimestamp = parsedDate.toISOString();
       detailUsageEvents.push({
         project_id: projectId,
         billing_period_id: billingPeriodId,
-        event_date: eventDate,
+        event_date: eventTimestamp,
         metric_type: metricType,
         quantity,
         unit_price_cents: Math.max(0, Math.round(row.unit_price * 100)),
@@ -173,6 +173,7 @@ export async function POST(req: Request) {
           csv_client_name: row.client_name || null,
           total_cost_cents: Math.round(costDollars * 100),
           total_tokens: tokensValue,
+          source_timestamp: eventTimestamp,
           source: 'usage_csv',
         },
         created_by: user.id,
@@ -213,10 +214,11 @@ export async function POST(req: Request) {
       startDate && endDate ? `${startDate} → ${endDate}` : startDate || endDate || 'usage';
     const description = `AI usage ${rangeSegment} (${validRows} rows; ${tokenSegment})`;
 
+    const aggregateEventDate = lastDate ? lastDate.toISOString() : new Date().toISOString();
     const aggregateRow = {
       project_id: projectId,
       billing_period_id: billingPeriodId,
-      event_date: endDate || new Date().toISOString().slice(0, 10),
+      event_date: aggregateEventDate,
       metric_type: 'ai_usage',
       quantity: 1,
       unit_price_cents: totalCostCents,

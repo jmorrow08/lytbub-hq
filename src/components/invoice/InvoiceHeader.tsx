@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { PublicInvoiceView } from '@/lib/invoice-portal';
+import { formatDate } from '@/lib/date-utils';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -14,9 +15,7 @@ const statusLabel: Record<string, string> = {
 };
 
 export function InvoiceHeader({ invoice }: { invoice: PublicInvoiceView }) {
-  const formattedDue = invoice.dueDate
-    ? new Date(invoice.dueDate).toLocaleDateString()
-    : 'On receipt';
+  const formattedDue = formatDate(invoice.dueDate) ?? 'On receipt';
   const amountDue = currency.format(invoice.amountDueCents / 100);
   const status = statusLabel[invoice.status] ?? invoice.status;
   const payUrl = invoice.hostedUrl ?? invoice.pdfUrl ?? null;

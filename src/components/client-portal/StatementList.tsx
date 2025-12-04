@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { formatDate } from '@/lib/date-utils';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -148,56 +149,57 @@ export function StatementList({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-900/60 bg-slate-950/40 text-slate-100">
-            {processed.map((invoice) => (
-              <tr key={invoice.id} className="hover:bg-slate-900/60">
-                <td className="px-4 py-3 font-medium">
-                  {invoice.invoiceNumber ?? `Invoice ${invoice.id.slice(0, 8)}`}
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {new Date(invoice.createdAt).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {invoice.dueDate
-                    ? new Date(invoice.dueDate).toLocaleDateString()
-                    : 'Due on receipt'}
-                </td>
-                <td className="px-4 py-3 text-right">{formatCurrency(invoice.totalCents)}</td>
-                <td className="px-4 py-3 text-right">{formatCurrency(invoice.amountDueCents)}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center rounded-full bg-slate-800 px-2 py-1 text-xs text-slate-200">
-                    {STATUS_LABEL[invoice.status] ?? invoice.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/client/statements/${invoice.id}`}>View</Link>
-                    </Button>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/api/client-portal/statements/${invoice.id}/download?type=csv`}>
-                        CSV
-                      </Link>
-                    </Button>
-                    {invoice.pdfUrl && (
+            {processed.map((invoice) => {
+              const dueDateLabel = invoice.dueDate ? formatDate(invoice.dueDate) : null;
+              return (
+                <tr key={invoice.id} className="hover:bg-slate-900/60">
+                  <td className="px-4 py-3 font-medium">
+                    {invoice.invoiceNumber ?? `Invoice ${invoice.id.slice(0, 8)}`}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {new Date(invoice.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {dueDateLabel ?? 'Due on receipt'}
+                  </td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(invoice.totalCents)}</td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(invoice.amountDueCents)}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center rounded-full bg-slate-800 px-2 py-1 text-xs text-slate-200">
+                      {STATUS_LABEL[invoice.status] ?? invoice.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-2">
                       <Button variant="ghost" size="sm" asChild>
-                        <Link
-                          href={`/api/client-portal/statements/${invoice.id}/download?type=pdf`}
-                        >
-                          PDF
+                        <Link href={`/client/statements/${invoice.id}`}>View</Link>
+                      </Button>
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/api/client-portal/statements/${invoice.id}/download?type=csv`}>
+                          CSV
                         </Link>
                       </Button>
-                    )}
-                    {invoice.hostedUrl && invoice.status === 'open' && (
-                      <Button variant="default" size="sm" asChild>
-                        <Link href={invoice.hostedUrl} target="_blank" rel="noreferrer">
-                          Pay
-                        </Link>
-                      </Button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      {invoice.pdfUrl && (
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link
+                            href={`/api/client-portal/statements/${invoice.id}/download?type=pdf`}
+                          >
+                            PDF
+                          </Link>
+                        </Button>
+                      )}
+                      {invoice.hostedUrl && invoice.status === 'open' && (
+                        <Button variant="default" size="sm" asChild>
+                          <Link href={invoice.hostedUrl} target="_blank" rel="noreferrer">
+                            Pay
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -212,6 +214,3 @@ export function StatementList({
     </div>
   );
 }
-
-
-

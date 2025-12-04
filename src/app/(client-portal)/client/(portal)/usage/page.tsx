@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { UsageBreakdown } from '@/components/client-portal/UsageBreakdown';
 import { useClientPortalContext } from '@/components/client-portal/ClientPortalShell';
 import { portalFetch } from '@/lib/client-portal/fetch';
+import { formatDate, formatDateTime } from '@/lib/date-utils';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -39,6 +40,7 @@ type UsageResponse = {
     rawCostCents: number;
     description: string | null;
     projectName: string | null;
+    totalTokens: number | null;
   }>;
 };
 
@@ -84,6 +86,7 @@ export default function ClientUsagePage() {
       'Event Date',
       'Metric',
       'Quantity',
+      'Total Tokens',
       'Unit Price (USD)',
       'Raw Cost (USD)',
       'Project',
@@ -94,6 +97,7 @@ export default function ClientUsagePage() {
         event.eventDate,
         event.metricType,
         String(event.quantity),
+        event.totalTokens != null ? String(event.totalTokens) : '',
         (event.unitPriceCents / 100).toFixed(4),
         (event.rawCostCents / 100).toFixed(4),
         event.projectName ?? '',
@@ -267,19 +271,20 @@ export default function ClientUsagePage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/70">
-                      {timeseries.map((day) => (
-                        <tr key={day.date} className="hover:bg-slate-950/50">
-                          <td className="py-3 pr-4 text-slate-100">
-                            {new Date(day.date).toLocaleDateString()}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-slate-200">
-                            {currency.format(day.totalCostCents / 100)}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-slate-200">
-                            {day.totalQuantity.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
+                      {timeseries.map((day) => {
+                        const formattedDate = formatDate(day.date) ?? day.date;
+                        return (
+                          <tr key={day.date} className="hover:bg-slate-950/50">
+                            <td className="py-3 pr-4 text-slate-100">{formattedDate}</td>
+                            <td className="py-3 pr-4 text-right text-slate-200">
+                              {currency.format(day.totalCostCents / 100)}
+                            </td>
+                            <td className="py-3 pr-4 text-right text-slate-200">
+                              {day.totalQuantity.toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -302,36 +307,37 @@ export default function ClientUsagePage() {
                         <th className="py-2 pr-4">Date</th>
                         <th className="py-2 pr-4">Metric</th>
                         <th className="py-2 pr-4">Project</th>
-                        <th className="py-2 pr-4 text-right">Quantity</th>
-                        <th className="py-2 pr-4 text-right">Unit</th>
+                        <th className="py-2 pr-4 text-right">Usage</th>
                         <th className="py-2 pr-4 text-right">Cost</th>
                         <th className="py-2 pr-4">Description</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/70">
-                      {usage.events.map((event) => (
-                        <tr key={event.id} className="hover:bg-slate-950/50">
-                          <td className="py-3 pr-4 text-slate-100">
-                            {new Date(event.eventDate).toLocaleString()}
-                          </td>
-                          <td className="py-3 pr-4 text-slate-100">{event.metricType}</td>
-                          <td className="py-3 pr-4 text-muted-foreground">
-                            {event.projectName ?? '—'}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-slate-200">
-                            {event.quantity.toLocaleString()}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-slate-200">
-                            {(event.unitPriceCents / 100).toFixed(4)}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-slate-200">
-                            {(event.rawCostCents / 100).toFixed(4)}
-                          </td>
-                          <td className="py-3 pr-4 text-muted-foreground">
-                            {event.description ? event.description.slice(0, 120) : '—'}
-                          </td>
-                        </tr>
-                      ))}
+                      {usage.events.map((event) => {
+                        const eventDateLabel = formatDateTime(event.eventDate) ?? event.eventDate ?? '—';
+                        const usageLabel =
+                          typeof event.totalTokens === 'number'
+                            ? `${event.totalTokens.toLocaleString()} tokens`
+                            : `${event.quantity.toLocaleString()} units`;
+                        return (
+                          <tr key={event.id} className="hover:bg-slate-950/50">
+                            <td className="py-3 pr-4 text-slate-100">{eventDateLabel}</td>
+                            <td className="py-3 pr-4 text-slate-100">{event.metricType}</td>
+                            <td className="py-3 pr-4 text-muted-foreground">
+                              {event.projectName ?? '—'}
+                            </td>
+                            <td className="py-3 pr-4 text-right text-slate-200">
+                              {usageLabel}
+                            </td>
+                            <td className="py-3 pr-4 text-right text-slate-200">
+                              {(event.rawCostCents / 100).toFixed(4)}
+                            </td>
+                            <td className="py-3 pr-4 text-muted-foreground">
+                              {event.description ? event.description.slice(0, 120) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -343,6 +349,3 @@ export default function ClientUsagePage() {
     </div>
   );
 }
-
-
-

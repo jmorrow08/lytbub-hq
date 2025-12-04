@@ -79,13 +79,16 @@ export async function GET(req: Request) {
     });
   }
 
+  const startBoundary = new Date(`${dateRange.startDate}T00:00:00.000Z`).toISOString();
+  const endBoundary = new Date(`${dateRange.endDate}T23:59:59.999Z`).toISOString();
+
   const usageResult = await (serviceClient.from('usage_events') as any)
     .select(
       'id, event_date, metric_type, quantity, unit_price_cents, description, metadata, project_id, project:projects(name)',
     )
     .in('project_id', projectIds)
-    .gte('event_date', dateRange.startDate)
-    .lte('event_date', dateRange.endDate)
+    .gte('event_date', startBoundary)
+    .lte('event_date', endBoundary)
     .order('event_date', { ascending: false })
     .limit(MAX_EVENTS);
   const data = usageResult.data as Array<{
@@ -118,6 +121,8 @@ export async function GET(req: Request) {
     const metadata = (event.metadata ?? {}) as {
       total_cost_cents?: number;
       sum_cost_cents?: number;
+      total_tokens?: number;
+      totalTokens?: number;
     };
     const storedUnitPriceCents = Number(event.unit_price_cents ?? 0) || 0;
     const computedRaw = Number.isFinite(quantity * storedUnitPriceCents)
@@ -132,6 +137,12 @@ export async function GET(req: Request) {
     const rawCostCents = Math.max(0, Math.round(preferredRaw));
     const unitPriceCents =
       quantity > 0 ? rawCostCents / quantity : storedUnitPriceCents;
+    const totalTokens =
+      typeof metadata.total_tokens === 'number'
+        ? metadata.total_tokens
+        : typeof metadata.totalTokens === 'number'
+        ? metadata.totalTokens
+        : null;
     return {
       id: event.id,
       eventDate: event.event_date,
@@ -143,6 +154,7 @@ export async function GET(req: Request) {
       projectId: event.project_id,
       projectName: project?.name ?? null,
       rawCostCents,
+      totalTokens,
     };
   });
 
@@ -174,7 +186,10 @@ export async function GET(req: Request) {
     existing.events += 1;
     breakdownMap.set(metricKey, existing);
 
-    const dayKey = event.eventDate ?? 'unknown';
+    const dayKey =
+      typeof event.eventDate === 'string' && event.eventDate.length >= 10
+        ? event.eventDate.slice(0, 10)
+        : 'unknown';
     const dayEntry = timeseriesMap.get(dayKey) ?? { totalCostCents: 0, totalQuantity: 0 };
     dayEntry.totalCostCents += event.rawCostCents;
     dayEntry.totalQuantity += event.quantity;

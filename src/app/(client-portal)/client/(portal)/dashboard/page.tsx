@@ -11,6 +11,7 @@ import { StatementList, type StatementRecord } from '@/components/client-portal/
 import { UsageBreakdown } from '@/components/client-portal/UsageBreakdown';
 import { useClientPortalContext } from '@/components/client-portal/ClientPortalShell';
 import { portalFetch } from '@/lib/client-portal/fetch';
+import { formatDate } from '@/lib/date-utils';
 
 type UsageSummary = {
   summary: {
@@ -206,11 +207,11 @@ export default function ClientDashboardPage() {
                 <div className="space-y-1">
                   <div className="text-2xl font-semibold text-slate-50">
                     {nextDueInvoice.dueDate
-                      ? new Date(nextDueInvoice.dueDate).toLocaleDateString(undefined, {
+                      ? formatDate(nextDueInvoice.dueDate, {
                           month: 'short',
                           day: 'numeric',
                           year: 'numeric',
-                        })
+                        }) ?? 'Due on receipt'
                       : 'Due on receipt'}
                   </div>
                   <p className="text-xs text-muted-foreground">
