@@ -74,7 +74,10 @@ export function AppFrame({ children }: { children: ReactNode }) {
 
   const retryPortalCheck = () => setPortalCheckKey((key) => key + 1);
 
-  if (loading || portalStatus === 'unknown' || portalStatus === 'checking') {
+  const checkingPortal =
+    Boolean(user) && (portalStatus === 'unknown' || portalStatus === 'checking');
+
+  if (loading || checkingPortal) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-3">
