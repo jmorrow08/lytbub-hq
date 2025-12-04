@@ -94,9 +94,14 @@ type RouteContext = {
 };
 
 export async function GET(req: Request, context: RouteContext) {
-  const type = new URL(req.url).searchParams.get('type') ?? 'pdf';
+  const url = new URL(req.url);
+  const type = url.searchParams.get('type') ?? 'pdf';
   const { invoiceId } = await context.params;
-  const wantsJson = (req.headers.get('x-client-portal-download') ?? '').toLowerCase() === '1';
+  const wantsJsonHeader = (req.headers.get('x-client-portal-download') ?? '').toLowerCase() === '1';
+  const wantsJsonFormat =
+    (url.searchParams.get('format') ?? url.searchParams.get('response') ?? '').toLowerCase() ===
+    'json';
+  const wantsJson = wantsJsonHeader || wantsJsonFormat;
 
   if (!invoiceId) {
     return NextResponse.json({ error: 'Invoice ID is required.' }, { status: 400 });

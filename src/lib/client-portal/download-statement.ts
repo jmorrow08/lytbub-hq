@@ -40,8 +40,16 @@ export async function downloadStatement(invoiceId: string, type: DownloadType) {
     throw new Error('You need to sign in to download statements.');
   }
 
-  const url = `/api/client-portal/statements/${invoiceId}/download?type=${type}`;
-  const response = await fetch(url, {
+  const requestUrl = new URL(
+    `/api/client-portal/statements/${invoiceId}/download`,
+    window.location.origin,
+  );
+  requestUrl.searchParams.set('type', type);
+  if (type === 'pdf') {
+    requestUrl.searchParams.set('format', 'json');
+  }
+
+  const response = await fetch(requestUrl.toString(), {
     headers: {
       Authorization: `Bearer ${token}`,
       'X-Client-Portal-Download': '1',
@@ -50,11 +58,27 @@ export async function downloadStatement(invoiceId: string, type: DownloadType) {
   });
 
   if (type === 'pdf') {
-    const payload = await response.json().catch(() => null);
+    const contentType = response.headers.get('Content-Type') ?? '';
+    const expectsJson = contentType.toLowerCase().includes('application/json');
+    const payload = expectsJson ? await response.json().catch(() => null) : null;
+
     if (response.ok && payload?.url) {
       window.open(payload.url, '_blank', 'noopener');
       return;
     }
+
+    if (response.ok && !expectsJson) {
+      try {
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank', 'noopener');
+        window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 30_000);
+        return;
+      } catch {
+        // ignore blob failures and fall through to generic error handling
+      }
+    }
+
     const message =
       payload?.error ??
       (response.ok ? 'Unable to generate download link.' : 'Unable to download statement.');
