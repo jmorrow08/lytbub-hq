@@ -72,12 +72,6 @@ export function AppFrame({ children }: { children: ReactNode }) {
     };
   }, [user?.id, portalCheckKey]);
 
-  useEffect(() => {
-    if (portalStatus === 'client-only') {
-      router.replace('/client/dashboard');
-    }
-  }, [portalStatus, router]);
-
   const retryPortalCheck = () => setPortalCheckKey((key) => key + 1);
 
   if (loading || portalStatus === 'unknown' || portalStatus === 'checking') {
