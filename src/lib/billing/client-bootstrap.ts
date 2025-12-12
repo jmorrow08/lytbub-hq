@@ -35,6 +35,14 @@ const resolveBillingOwnerId = async (
   return null;
 };
 
+type MembershipRow = {
+  client_id: string;
+  client:
+    | { id: string; created_by: string | null }
+    | Array<{ id: string; created_by: string | null }>
+    | null;
+};
+
 export const ensureClientForUser = async (user: User | null): Promise<string | null> => {
   if (!user?.id) return null;
   let service;
@@ -57,7 +65,7 @@ export const ensureClientForUser = async (user: User | null): Promise<string | n
       .select('client_id, client:clients(id, created_by)')
       .eq('user_id', user.id)
       .limit(1)
-      .maybeSingle();
+      .maybeSingle<MembershipRow>();
 
     if (membershipLookupError) {
       console.error('[billing bootstrap] membership lookup failed', membershipLookupError);
@@ -65,7 +73,11 @@ export const ensureClientForUser = async (user: User | null): Promise<string | n
     }
 
     if (existingMembership?.client_id) {
-      if (ownerId && existingMembership.client?.created_by !== ownerId) {
+      const clientRow = Array.isArray(existingMembership.client)
+        ? existingMembership.client[0]
+        : existingMembership.client;
+
+      if (ownerId && clientRow?.created_by !== ownerId) {
         await service
           .from('clients')
           .update({ created_by: ownerId, updated_at: new Date().toISOString() })
