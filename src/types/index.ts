@@ -459,4 +459,5 @@ export interface ProfileSettings {
   timezone: string;
   tz_last_seen_at?: string;
   app_mode: AppMode;
+  features?: string[];
 }

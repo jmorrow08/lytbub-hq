@@ -18,9 +18,12 @@ import type { Task, CreateTaskData, ProjectWithChannels } from '@/types';
 import { useFocusMode } from '@/components/mode/FocusModeProvider';
 import { TaskCompletionModal, type CompletionDetails } from '@/components/tasks/TaskCompletionModal';
 import { CheckSquare, Plus, Trash2, Edit } from 'lucide-react';
+import { useUserFeatures } from '@/components/features/UserFeaturesProvider';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function TasksPage() {
   const { focusMode } = useFocusMode();
+  const { features, loading: featuresLoading } = useUserFeatures();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -30,6 +33,12 @@ export default function TasksPage() {
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [completionTask, setCompletionTask] = useState<Task | null>(null);
   const [savingCompletion, setSavingCompletion] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryStart, setSummaryStart] = useState('');
+  const [summaryEnd, setSummaryEnd] = useState('');
+  const [summaryText, setSummaryText] = useState<string | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -63,6 +72,14 @@ export default function TasksPage() {
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    if (!showSummary) {
+      setSummaryText(null);
+      setSummaryError(null);
+      setSummarizing(false);
+    }
+  }, [showSummary]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,6 +160,38 @@ export default function TasksPage() {
 
   const closeCompletionModal = () => setCompletionTask(null);
 
+  const requestSummary = async () => {
+    setSummarizing(true);
+    setSummaryError(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch('/api/tasks/summary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          startDate: summaryStart || null,
+          endDate: summaryEnd || null,
+        }),
+      });
+      const payload = (await response.json()) as { summary?: string; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to generate summary.');
+      }
+      setSummaryText(payload.summary ?? 'No summary available.');
+    } catch (error) {
+      console.error('Summary failed', error);
+      setSummaryError(error instanceof Error ? error.message : 'Unable to generate summary.');
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
   const handleDelete = async (taskId: string) => {
     if (!confirm('Are you sure you want to delete this task?')) return;
 
@@ -170,8 +219,39 @@ export default function TasksPage() {
     setShowForm(false);
   };
 
+  const hasTasksFeature = features.includes('tasks');
+  const hasAISummary = features.includes('ai_summary');
+
   const completedTasks = tasks.filter(task => task.completed);
   const pendingTasks = tasks.filter(task => !task.completed);
+
+  if (featuresLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading your workspace…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasTasksFeature) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-3xl font-bold">Tasks</h1>
+        <Card>
+          <CardHeader>
+            <CardTitle>Access unavailable</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Tasks are not enabled for this account. If you believe this is a mistake, contact your
+            admin.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -209,6 +289,11 @@ export default function TasksPage() {
             <Plus className="h-4 w-4" />
             <span>Add Task</span>
           </Button>
+          {hasAISummary && (
+            <Button variant="outline" onClick={() => setShowSummary(true)}>
+              Summarize
+            </Button>
+          )}
         </div>
       </div>
 
@@ -410,6 +495,63 @@ export default function TasksPage() {
         onClose={closeCompletionModal}
         onSubmit={handleCompletionSubmit}
       />
+
+      {showSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-xl rounded-lg bg-background shadow-2xl">
+            <div className="flex items-start justify-between border-b px-6 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">AI Summary</p>
+                <h2 className="text-xl font-semibold">Summarize completed tasks</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Choose a date range or leave blank to include all completed tasks.
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setShowSummary(false)}>
+                Close
+              </Button>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Start date</label>
+                  <Input
+                    type="date"
+                    value={summaryStart}
+                    onChange={(e) => setSummaryStart(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">End date</label>
+                  <Input
+                    type="date"
+                    value={summaryEnd}
+                    onChange={(e) => setSummaryEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+              {summaryError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {summaryError}
+                </div>
+              )}
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setShowSummary(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={requestSummary} disabled={summarizing}>
+                  {summarizing ? 'Summarizing…' : 'Generate summary'}
+                </Button>
+              </div>
+              {summaryText && (
+                <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm">
+                  <p className="whitespace-pre-line">{summaryText}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,23 @@
+import { createClient } from '@supabase/supabase-js';
+
+type Database = Record<string, unknown>;
+
+let cachedAdminClient: ReturnType<typeof createClient<Database>> | null = null;
+
+export function getServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error('Supabase service role is not configured.');
+  }
+
+  if (!cachedAdminClient) {
+    cachedAdminClient = createClient<Database>(supabaseUrl, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${serviceKey}` } },
+    });
+  }
+
+  return cachedAdminClient;
+}

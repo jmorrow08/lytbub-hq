@@ -8,6 +8,7 @@ import { useAuth } from './auth/AuthProvider';
 import { LoginForm } from './auth/LoginForm';
 import { Navigation } from './Navigation';
 import { FocusModeProvider } from './mode/FocusModeProvider';
+import { UserFeaturesProvider } from './features/UserFeaturesProvider';
 import { Button } from './ui/button';
 
 type PortalStatus = 'unknown' | 'checking' | 'full' | 'client-only' | 'error';
@@ -127,10 +128,12 @@ export function AppFrame({ children }: { children: ReactNode }) {
 
   return (
     <FocusModeProvider>
-      <div className="min-h-screen bg-background text-foreground">
-        <Navigation />
-        <main className="container mx-auto px-4 py-8">{children}</main>
-      </div>
+      <UserFeaturesProvider>
+        <div className="min-h-screen bg-background text-foreground">
+          <Navigation />
+          <main className="container mx-auto px-4 py-8">{children}</main>
+        </div>
+      </UserFeaturesProvider>
     </FocusModeProvider>
   );
 }
