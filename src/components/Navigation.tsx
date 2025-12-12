@@ -10,10 +10,11 @@ import type { FeatureFlag } from '@/lib/features';
 
 const navigation: Array<{ name: string; href: string; icon: typeof CheckSquare; feature?: FeatureFlag }> = [
   { name: 'Dashboard', href: '/', icon: CheckSquare },
+  { name: 'Billing', href: '/client/dashboard', icon: CreditCard, feature: 'billing' },
   { name: 'Projects', href: '/projects', icon: FolderKanban, feature: 'dashboard' },
   { name: 'Clients', href: '/clients', icon: UserCircle, feature: 'dashboard' },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare, feature: 'tasks' },
-  { name: 'Finance', href: '/finance', icon: CreditCard, feature: 'billing' },
+  { name: 'Finance', href: '/finance', icon: CreditCard, feature: 'admin' },
   { name: 'Content', href: '/content', icon: Video, feature: 'dashboard' },
   { name: 'Health', href: '/health', icon: Heart, feature: 'dashboard' },
   { name: 'Users', href: '/users', icon: UserCircle, feature: 'admin' },

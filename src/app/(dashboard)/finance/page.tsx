@@ -46,6 +46,7 @@ import { Loader2, Trash2, DollarSign, Plus, Pencil, Trash } from 'lucide-react';
 import { runFinanceBackfills } from '@/lib/maintenance';
 import { getActiveTimezone, getMonthRangeUTC } from '@/lib/timezone';
 import { supabase } from '@/lib/supabaseClient';
+import { useUserFeatures } from '@/components/features/UserFeaturesProvider';
 import { UsageImportForm } from '@/components/billing/UsageImportForm';
 import { InvoiceBuilder } from '@/components/billing/InvoiceBuilder';
 import { SubscriptionManager } from '@/components/billing/SubscriptionManager';
@@ -110,6 +111,7 @@ export default function FinancePage() {
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get('tab') as TabKey) || 'overview';
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const { features, loading: featuresLoading } = useUserFeatures();
 
   // Overview (Payments) state
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -189,12 +191,32 @@ export default function FinancePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  useEffect(() => {
+    if (featuresLoading) return;
+    if (!features.includes('admin')) {
+      router.replace('/client/dashboard');
+    }
+  }, [features, featuresLoading, router]);
+
   const setTab = (tab: TabKey) => {
     setActiveTab(tab);
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
     router.replace(`?${params.toString()}`);
   };
+
+  if (!featuresLoading && !features.includes('admin')) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-2">
+          <p className="text-lg font-semibold">Finance is restricted</p>
+          <p className="text-sm text-muted-foreground">
+            You have billing access only. Redirecting to your billing dashboard…
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Overview loaders
   const loadFinanceData = async () => {
