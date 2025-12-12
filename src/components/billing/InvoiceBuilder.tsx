@@ -29,6 +29,14 @@ type InvoiceBuilderProps = {
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
+const getPendingBillingPeriodId = (item: PendingInvoiceItem): string | null => {
+  const metadata = (item.metadata ?? {}) as Record<string, unknown>;
+  const raw =
+    (metadata.billing_period_id as string | undefined) ??
+    (metadata.billingPeriodId as string | undefined);
+  return typeof raw === 'string' && raw.length > 0 ? raw : null;
+};
+
 export function InvoiceBuilder({
   billingPeriods,
   projects,
@@ -96,14 +104,20 @@ export function InvoiceBuilder({
     }
 
     setSelectedPendingItemIds((prev) => {
-      if (prev.length === 0) {
-        return prev;
-      }
       const permittedIds = new Set(
-        pendingItems.filter((item) => item.project_id === nextProjectId).map((item) => item.id),
+        pendingItems
+          .filter((item) => item.project_id === nextProjectId)
+          .map((item) => item.id),
       );
-      const filtered = prev.filter((id) => permittedIds.has(id));
-      return filtered.length === prev.length ? prev : filtered;
+      const periodIds = new Set(
+        pendingItems
+          .filter((item) => item.project_id === nextProjectId)
+          .filter((item) => getPendingBillingPeriodId(item) === nextPeriodId)
+          .map((item) => item.id),
+      );
+      const retained = prev.filter((id) => permittedIds.has(id));
+      const merged = new Set([...retained, ...periodIds]);
+      return Array.from(merged);
     });
 
     if (lastProjectIdRef.current !== nextProjectId) {
@@ -120,8 +134,23 @@ export function InvoiceBuilder({
     if (!projectId) return [];
     return pendingItems
       .filter((item) => item.project_id === projectId)
+      .filter((item) => {
+        if (!billingPeriodId) return true;
+        const itemPeriod = getPendingBillingPeriodId(item);
+        // Only hide items explicitly tied to a different billing period.
+        return itemPeriod === null || itemPeriod === billingPeriodId;
+      })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [pendingItems, projectId]);
+  }, [pendingItems, projectId, billingPeriodId]);
+
+  const outOfPeriodPendingCount = useMemo(() => {
+    if (!projectId || !billingPeriodId) return 0;
+    return pendingItems.filter((item) => {
+      if (item.project_id !== projectId) return false;
+      const itemPeriod = getPendingBillingPeriodId(item);
+      return itemPeriod !== null && itemPeriod !== billingPeriodId;
+    }).length;
+  }, [billingPeriodId, pendingItems, projectId]);
 
   const selectedPendingItems = useMemo(
     () => pendingItems.filter((item) => selectedPendingItemIds.includes(item.id)),
@@ -147,7 +176,9 @@ export function InvoiceBuilder({
 
   const totalCents = pendingTotalCents + retainerCents + manualLinesTotalCents;
   const selectedPendingCount = selectedPendingItems.length;
-  const hasManualLines = manualLinesTotalCents > 0;
+  const hasManualLines = manualLines.some(
+    (line) => line.description.trim().length > 0 && line.unitPrice.trim().length > 0,
+  );
   const canSubmit = totalCents > 0 && (collectionMethod !== 'send_invoice' || Boolean(dueDate));
 
   const togglePendingItem = (itemId: string) => {
@@ -186,12 +217,16 @@ export function InvoiceBuilder({
       manualLines.length > 0
         ? manualLines
             .filter((line) => line.description && line.unitPrice)
-            .map((line) => ({
-              description: line.description.trim(),
-              quantity: Number.parseFloat(line.quantity || '1') || 1,
-              unitPriceCents: Math.round((Number.parseFloat(line.unitPrice) || 0) * 100),
-            }))
-            .filter((line) => line.description && line.unitPriceCents > 0)
+            .map((line) => {
+              const parsedQty = Number.parseFloat(line.quantity || '1');
+              const quantity = Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+              return {
+                description: line.description.trim(),
+                quantity,
+                unitPriceCents: Math.round((Number.parseFloat(line.unitPrice) || 0) * 100),
+              };
+            })
+            .filter((line) => line.description && line.unitPriceCents !== 0)
         : [];
 
     const hasManualLines = normalizedManualLines.length > 0;
@@ -259,7 +294,15 @@ export function InvoiceBuilder({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">Pending items for this project</p>
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Pending items for this project</p>
+                {outOfPeriodPendingCount > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {outOfPeriodPendingCount} item{outOfPeriodPendingCount === 1 ? '' : 's'} tagged to
+                    other billing periods are hidden.
+                  </p>
+                )}
+              </div>
               <Button
                 type="button"
                 variant="ghost"
@@ -306,6 +349,11 @@ export function InvoiceBuilder({
                         </span>
                         <span className="block text-xs text-muted-foreground">
                           Created {new Date(item.created_at).toLocaleDateString()}
+                          {getPendingBillingPeriodId(item) && (
+                            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                              {getPendingBillingPeriodId(item)}
+                            </span>
+                          )}
                         </span>
                       </span>
                       <span className="whitespace-nowrap font-semibold">
@@ -407,19 +455,34 @@ export function InvoiceBuilder({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">Manual line items (optional)</p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setManualLines((prev) => [
-                    ...prev,
-                    { description: '', quantity: '1', unitPrice: '' },
-                  ])
-                }
-              >
-                Add line
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setManualLines((prev) => [
+                      ...prev,
+                      { description: '', quantity: '1', unitPrice: '' },
+                    ])
+                  }
+                >
+                  Add line
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setManualLines((prev) => [
+                      ...prev,
+                      { description: 'Account credit', quantity: '1', unitPrice: '-50.00' },
+                    ])
+                  }
+                >
+                  Add credit/discount
+                </Button>
+              </div>
             </div>
             {manualLines.length > 0 && (
               <div className="space-y-2">
@@ -440,7 +503,6 @@ export function InvoiceBuilder({
                     <Input
                       className="md:col-span-2"
                       type="number"
-                      min="0"
                       step="0.01"
                       placeholder="Qty"
                       value={line.quantity}
@@ -456,7 +518,7 @@ export function InvoiceBuilder({
                       className="md:col-span-3"
                       type="number"
                       step="0.01"
-                      placeholder="Unit price (USD)"
+                      placeholder="Unit price (USD) — use negatives for credits"
                       value={line.unitPrice}
                       onChange={(e) =>
                         setManualLines((prev) => {
@@ -479,7 +541,8 @@ export function InvoiceBuilder({
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              Tip: Use negative unit price for credits/discounts.
+              Tip: Use negative unit price for credits/discounts. These lines appear on the client
+              invoice and reduce the total.
             </p>
           </div>
 
@@ -506,9 +569,7 @@ export function InvoiceBuilder({
               {hasManualLines && (
                 <p>
                   Manual lines{' '}
-                  <span className="font-semibold">
-                    {currency.format(manualLinesTotalCents / 100)}
-                  </span>
+                  <span className="font-semibold">{currency.format(manualLinesTotalCents / 100)}</span>
                 </p>
               )}
             </div>

@@ -256,7 +256,7 @@ export async function POST(req: Request) {
           .map((value) => value.trim())
       : [];
 
-    let pendingItems: Array<{
+    type PendingItemRecord = {
       id: string;
       project_id: string;
       client_id: string | null;
@@ -265,7 +265,101 @@ export async function POST(req: Request) {
       unit_price_cents: number;
       source_type: string | null;
       metadata: Record<string, unknown> | null;
-    }> = [];
+    };
+
+    const resolvePendingItemsForPeriod = async (): Promise<PendingItemRecord[]> => {
+      // 1) Try to scope existing pending items that were tagged to this billing period (usage imports)
+      const { data: scopedPending, error: scopedError } = await supabase
+        .from('pending_invoice_items')
+        .select(
+          'id, project_id, client_id, description, quantity, unit_price_cents, source_type, metadata',
+        )
+        .eq('project_id', project.id)
+        .eq('status', 'pending')
+        .eq('created_by', user.id)
+        .eq('metadata->>billing_period_id', period.id);
+
+      if (scopedError) {
+        console.error('[api/billing/invoices/draft] scoped pending lookup failed', scopedError);
+      }
+
+      if (scopedPending && scopedPending.length > 0) {
+        return scopedPending;
+      }
+
+      // 2) If nothing is queued yet, fall back to usage events that belong to this billing period.
+      const { data: usageAggregates, error: usageError } = await supabase
+        .from('usage_events')
+        .select('id, description, metric_type, quantity, unit_price_cents, metadata')
+        .eq('billing_period_id', period.id)
+        .eq('created_by', user.id)
+        .eq('metadata->>aggregate', 'true');
+
+      if (usageError) {
+        console.error('[api/billing/invoices/draft] usage aggregate lookup failed', usageError);
+        return [];
+      }
+
+      if (!usageAggregates || usageAggregates.length === 0) {
+        return [];
+      }
+
+      const buildAmountCents = (metadata: Record<string, unknown>, unitPriceCents: number) => {
+        const raw =
+          typeof metadata.sum_cost_cents === 'number'
+            ? metadata.sum_cost_cents
+            : typeof metadata.total_cost_cents === 'number'
+            ? metadata.total_cost_cents
+            : unitPriceCents;
+        return Math.max(0, Math.round(Number(raw) || 0));
+      };
+
+      const records = usageAggregates
+        .map((event) => {
+          const metadata = (event.metadata ?? {}) as Record<string, unknown>;
+          const quantity = Number(event.quantity ?? metadata.total_rows ?? 1);
+          const unitPriceCents = buildAmountCents(metadata, Number(event.unit_price_cents) || 0);
+          if (!Number.isFinite(unitPriceCents) || unitPriceCents <= 0) {
+            return null;
+          }
+          return {
+            created_by: user.id,
+            project_id: project.id,
+            client_id: clientId,
+            source_type: 'usage' as const,
+            source_ref_id: event.id,
+            description:
+              event.description ||
+              (typeof metadata.metric_type === 'string' ? metadata.metric_type : null) ||
+              'Usage fees',
+            quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+            unit_price_cents: unitPriceCents,
+            metadata: { ...metadata, billing_period_id: period.id, usage_event_id: event.id },
+          };
+        })
+        .filter((record): record is NonNullable<typeof record> => Boolean(record));
+
+      if (records.length === 0) return [];
+
+      const { data: inserted, error: insertError } = await supabase
+        .from('pending_invoice_items')
+        .insert(records)
+        .select(
+          'id, project_id, client_id, description, quantity, unit_price_cents, source_type, metadata',
+        );
+
+      if (insertError) {
+        console.error(
+          '[api/billing/invoices/draft] unable to queue usage as pending items',
+          insertError,
+        );
+        return [];
+      }
+
+      return inserted ?? [];
+    };
+
+    let pendingItems: PendingItemRecord[] = [];
 
     if (pendingItemIds.length > 0) {
       const { data, error: pendingError } = await supabase
@@ -298,6 +392,8 @@ export async function POST(req: Request) {
       }
 
       pendingItems = data;
+    } else {
+      pendingItems = await resolvePendingItemsForPeriod();
     }
 
     const baseLines: DraftLine[] = [];
