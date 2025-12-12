@@ -17,16 +17,18 @@ const resolveBillingOwnerId = async (
 ) => {
   if (!emailList.length) return null;
   try {
-    for (const email of emailList) {
-      const { data, error } = await service.auth.admin.getUserByEmail(email);
-      if (error) {
-        console.warn('[billing bootstrap] super admin lookup failed', { email, error });
-        continue;
-      }
-      if (data?.user?.id) {
-        return data.user.id;
-      }
+    const { data, error } = await service.auth.admin.listUsers({ perPage: 1000 });
+    if (error) {
+      console.error('[billing bootstrap] listUsers failed', error);
+      return null;
     }
+
+    const normalized = emailList.map((item) => item.toLowerCase());
+    const match = (data?.users ?? []).find((user) =>
+      user.email ? normalized.includes(user.email.toLowerCase()) : false,
+    );
+
+    return match?.id ?? null;
   } catch (error) {
     console.error('[billing bootstrap] resolveBillingOwnerId failed', error);
   }
