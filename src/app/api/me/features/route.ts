@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getAuthUserFromRequest } from '@/lib/auth/client-auth';
 import { ALL_FEATURE_FLAGS, normalizeFeatures, type FeatureFlag } from '@/lib/features';
 import { isSuperAdmin } from '@/lib/auth/super-admin';
+import { ensureClientForUser } from '@/lib/billing/client-bootstrap';
 
 export async function GET(req: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,6 +34,10 @@ export async function GET(req: Request) {
   }
 
   const features = normalizeFeatures(data);
+
+  // Ensure every authenticated user is represented as a billable client for the super admin.
+  await ensureClientForUser(user);
+
   if (isSuperAdmin(user)) {
     const allAccess = new Set<FeatureFlag>([...features, ...ALL_FEATURE_FLAGS]);
     return NextResponse.json({ features: Array.from(allAccess) });
