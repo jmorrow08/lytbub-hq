@@ -103,7 +103,7 @@ function TaskCompletionModalContent({
                   value={financialImpact}
                   onChange={(e) => setFinancialImpact(e.target.value)}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="e.g., Reduced churn by fixing login issue; saved ~$10k in SLO penalties."
+                  placeholder="e.g., Cleared outbound backlog before carrier cutoff; reduced mis-picks by ~15% this shift."
                   rows={3}
                   required
                 />
@@ -113,7 +113,7 @@ function TaskCompletionModalContent({
                 <Input
                   value={skill}
                   onChange={(e) => setSkill(e.target.value)}
-                  placeholder="e.g., Incident response, backend optimization"
+                  placeholder="e.g., Forklift ops, slotting/put-away optimization, pick/pack QA"
                 />
               </div>
               <div className="space-y-2">
@@ -121,7 +121,7 @@ function TaskCompletionModalContent({
                 <Input
                   value={kudos}
                   onChange={(e) => setKudos(e.target.value)}
-                  placeholder="e.g., Slack praise, customer quote"
+                  placeholder="e.g., Shift lead shout-out; carrier team thanked us; QC noted zero damages"
                 />
               </div>
             </>

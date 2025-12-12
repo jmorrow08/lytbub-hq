@@ -56,18 +56,20 @@ export default function TasksPage() {
     }
   }, [projectFilter]);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     try {
       const data = await getProjects();
       setProjects(data);
     } catch (error) {
       console.error('Error fetching projects:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    const shouldLoadProjects = features.includes('admin');
+    if (!shouldLoadProjects) return;
     fetchProjects();
-  }, []);
+  }, [features, fetchProjects]);
 
   useEffect(() => {
     fetchTasks();
@@ -192,6 +194,120 @@ export default function TasksPage() {
     }
   };
 
+  const downloadSummaryPdf = () => {
+    if (!summaryText) return;
+
+    const encoder = new TextEncoder();
+    const rangeLabel = summaryStart || summaryEnd
+      ? `Covered range: ${summaryStart || 'start'} to ${summaryEnd || 'present'}`
+      : 'Covered range: all completed tasks';
+
+    const escapePdfText = (text: string) =>
+      text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+
+    const wrapText = (text: string, max = 94) => {
+      const lines: string[] = [];
+      const cleaned = text.replace(/\*\*/g, '').split(/\r?\n/);
+      cleaned.forEach((paragraph) => {
+        const trimmed = paragraph.trim();
+        if (!trimmed) {
+          lines.push('');
+          return;
+        }
+        const words = trimmed.split(/\s+/);
+        let current = '';
+        words.forEach((word) => {
+          if (!current.length) {
+            current = word;
+            return;
+          }
+          if (`${current} ${word}`.length <= max) {
+            current = `${current} ${word}`;
+          } else {
+            lines.push(current);
+            current = word;
+          }
+        });
+        if (current) lines.push(current);
+      });
+      return lines;
+    };
+
+    const bodyLines = wrapText(summaryText);
+
+    const contentLines = [
+      'BT',
+      '/F1 18 Tf',
+      '1 0 0 1 64 760 Tm',
+      '22 TL',
+      `(${escapePdfText('Performance Review Summary')}) Tj`,
+      'T*',
+      '/F1 12 Tf',
+      '16 TL',
+      `(${escapePdfText(rangeLabel)}) Tj`,
+      'T*',
+      'T*',
+      ...bodyLines.flatMap((line) => [`(${escapePdfText(line || ' ')}) Tj`, 'T*']),
+      'ET',
+    ].join('\n');
+
+    const contentBytes = encoder.encode(contentLines);
+
+    const pdfChunks: Uint8Array[] = [];
+    const offsets: number[] = [];
+    let length = 0;
+
+    const pushChunk = (text: string) => {
+      const bytes = encoder.encode(text);
+      pdfChunks.push(bytes);
+      length += bytes.length;
+    };
+
+    const addObject = (obj: string) => {
+      offsets.push(length);
+      pushChunk(obj);
+      pushChunk('\n');
+    };
+
+    pushChunk('%PDF-1.4\n');
+
+    addObject('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj');
+    addObject('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj');
+    addObject(
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj',
+    );
+    addObject(
+      `4 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n${contentLines}\nendstream\nendobj`,
+    );
+    addObject('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj');
+
+    const xrefStart = length;
+    let xref = `xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`;
+    xref += offsets.map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+    xref += 'trailer\n';
+    xref += `<< /Root 1 0 R /Size ${offsets.length + 1} >>\n`;
+    xref += 'startxref\n';
+    xref += `${xrefStart}\n`;
+    xref += '%%EOF';
+
+    pushChunk(xref);
+
+    const pdfBytes = new Uint8Array(length);
+    let position = 0;
+    pdfChunks.forEach((chunk) => {
+      pdfBytes.set(chunk, position);
+      position += chunk.length;
+    });
+
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `task-summary-${Date.now()}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleDelete = async (taskId: string) => {
     if (!confirm('Are you sure you want to delete this task?')) return;
 
@@ -221,6 +337,7 @@ export default function TasksPage() {
 
   const hasTasksFeature = features.includes('tasks');
   const hasAISummary = features.includes('ai_summary');
+  const isSuperAdmin = features.includes('admin');
 
   const completedTasks = tasks.filter(task => task.completed);
   const pendingTasks = tasks.filter(task => !task.completed);
@@ -272,19 +389,21 @@ export default function TasksPage() {
           <p className="text-muted-foreground">Manage your tasks and track progress</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <select
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-          >
-            <option value="all">All projects</option>
-            <option value="unassigned">Unassigned</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+          {isSuperAdmin && (
+            <select
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+            >
+              <option value="all">All projects</option>
+              <option value="unassigned">Unassigned</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          )}
           <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
             <Plus className="h-4 w-4" />
             <span>Add Task</span>
@@ -330,24 +449,26 @@ export default function TasksPage() {
                   rows={3}
                 />
               </div>
-              <div>
-                <label htmlFor="project" className="block text-sm font-medium mb-1">
-                  Project
-                </label>
-                <select
-                  id="project"
-                  value={formData.project_id}
-                  onChange={(e) => setFormData(prev => ({ ...prev, project_id: e.target.value }))}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-                >
-                  <option value="">Unassigned</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {isSuperAdmin && (
+                <div>
+                  <label htmlFor="project" className="block text-sm font-medium mb-1">
+                    Project
+                  </label>
+                  <select
+                    id="project"
+                    value={formData.project_id}
+                    onChange={(e) => setFormData(prev => ({ ...prev, project_id: e.target.value }))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                  >
+                    <option value="">Unassigned</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex space-x-2">
                 <Button type="submit">
                   {editingTask ? 'Update Task' : 'Add Task'}
@@ -535,7 +656,12 @@ export default function TasksPage() {
                   {summaryError}
                 </div>
               )}
-              <div className="flex justify-end gap-3">
+              <div className="flex flex-wrap justify-end gap-3">
+                {summaryText && (
+                  <Button variant="secondary" onClick={downloadSummaryPdf} disabled={!summaryText || summarizing}>
+                    Download PDF
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => setShowSummary(false)}>
                   Cancel
                 </Button>
