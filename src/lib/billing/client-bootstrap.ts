@@ -141,6 +141,54 @@ export const ensureClientForUser = async (user: User | null): Promise<string | n
       console.error('[billing bootstrap] linking client to user failed', linkError);
     }
 
+    // Ensure a default billing project exists for this client so it appears in finance.
+    if (clientId) {
+      const { data: existingProject, error: projectLookupError } = await service
+        .from('projects')
+        .select('id')
+        .eq('client_id', clientId)
+        .maybeSingle();
+
+      if (projectLookupError) {
+        console.error('[billing bootstrap] project lookup failed', projectLookupError);
+      }
+
+      if (!existingProject) {
+        const baseName =
+          (user.user_metadata?.full_name && `${user.user_metadata.full_name} Workspace`) ||
+          (user.email && `${user.email} Workspace`) ||
+          'New Client Workspace';
+
+        const slugify = (value: string) =>
+          value
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/(^-|-$)+/g, '')
+            .slice(0, 40) || `client-${clientId.slice(0, 8)}`;
+
+        const slugBase = slugify(baseName);
+        const slug = `${slugBase}-${clientId.slice(0, 6)}`.toLowerCase();
+
+        const { error: createProjectError } = await service.from('projects').insert({
+          name: baseName,
+          slug,
+          type: 'client',
+          status: 'active',
+          client_id: clientId,
+          created_by: ownerId || user.id,
+          notes: 'Auto-created for billing access',
+          color: '#0ea5e9',
+        });
+
+        if (createProjectError) {
+          console.error('[billing bootstrap] failed to create default client project', {
+            clientId,
+            error: createProjectError,
+          });
+        }
+      }
+    }
+
     return clientId;
   } catch (error) {
     console.error('[billing bootstrap] ensureClientForUser failed', error);

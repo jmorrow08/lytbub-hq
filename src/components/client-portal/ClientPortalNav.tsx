@@ -87,7 +87,7 @@ export function ClientPortalNav({
           <div className="text-xs uppercase tracking-wide text-slate-500">Workspace</div>
           <div className="mt-2 space-y-2">
             <Button asChild variant="outline" size="sm" className="w-full justify-start">
-              <Link href="/dashboard">Back to dashboard</Link>
+              <Link href="/">Back to dashboard</Link>
             </Button>
             <Button asChild variant="ghost" size="sm" className="w-full justify-start text-slate-300 hover:text-slate-100">
               <Link href="/tasks">Go to tasks</Link>
@@ -98,7 +98,6 @@ export function ClientPortalNav({
     </aside>
   );
 }
-
 
 
 
