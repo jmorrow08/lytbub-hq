@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthUserFromRequest } from '@/lib/auth/client-auth';
-import { normalizeFeatures } from '@/lib/features';
+import { ALL_FEATURE_FLAGS, normalizeFeatures, type FeatureFlag } from '@/lib/features';
 import { isSuperAdmin } from '@/lib/auth/super-admin';
 
 export async function GET(req: Request) {
@@ -33,8 +33,9 @@ export async function GET(req: Request) {
   }
 
   const features = normalizeFeatures(data);
-  if (isSuperAdmin(user) && !features.includes('admin')) {
-    features.push('admin');
+  if (isSuperAdmin(user)) {
+    const allAccess = new Set<FeatureFlag>([...features, ...ALL_FEATURE_FLAGS]);
+    return NextResponse.json({ features: Array.from(allAccess) });
   }
 
   return NextResponse.json({ features });
