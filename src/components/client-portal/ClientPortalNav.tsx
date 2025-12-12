@@ -82,11 +82,22 @@ export function ClientPortalNav({
             })}
           </nav>
         </div>
+
+        <div className="pt-2">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Workspace</div>
+          <div className="mt-2 space-y-2">
+            <Button asChild variant="outline" size="sm" className="w-full justify-start">
+              <Link href="/dashboard">Back to dashboard</Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm" className="w-full justify-start text-slate-300 hover:text-slate-100">
+              <Link href="/tasks">Go to tasks</Link>
+            </Button>
+          </div>
+        </div>
       </div>
     </aside>
   );
 }
-
 
 
 
