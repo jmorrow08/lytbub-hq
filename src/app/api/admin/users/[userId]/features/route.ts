@@ -8,6 +8,14 @@ type RouteContext = {
   params: Promise<{ userId: string }>;
 };
 
+type ProfileSettingsRow = {
+  user_id: string;
+  timezone: string | null;
+  app_mode: string | null;
+  tz_last_seen_at: string | null;
+  features?: string[] | null;
+};
+
 export async function GET(req: Request, context: RouteContext) {
   const { userId } = await context.params;
   const currentUser = await getAuthUserFromRequest(req);
@@ -64,7 +72,7 @@ export async function POST(req: Request, context: RouteContext) {
     .from('profile_settings')
     .select('user_id, timezone, app_mode, tz_last_seen_at')
     .eq('user_id', userId)
-    .maybeSingle();
+    .maybeSingle<ProfileSettingsRow>();
 
   if (fetchError) {
     console.error('[admin/users/features] fetch existing failed', fetchError);

@@ -1,8 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-type Database = Record<string, unknown>;
-
-let cachedAdminClient: ReturnType<typeof createClient<Database>> | null = null;
+let cachedAdminClient: SupabaseClient | null = null;
 
 export function getServiceRoleClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,7 +11,7 @@ export function getServiceRoleClient() {
   }
 
   if (!cachedAdminClient) {
-    cachedAdminClient = createClient<Database>(supabaseUrl, serviceKey, {
+    cachedAdminClient = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
       global: { headers: { Authorization: `Bearer ${serviceKey}` } },
     });
